@@ -101,10 +101,6 @@ def read_timeseries(data_dir):
         temps,
         axis=0,
     )
+    # TODO: maybe aggregate data more for better visual?
     fig = px.line(yr_data, x="Date", y="Temp", color='Year')
-    fig.update_layout(xaxis_tickformat="%m-%n")
-
-
-
-
-
+    fig.update_layout(xaxis_tickformat="%B-%d")
