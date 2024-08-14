@@ -1,12 +1,9 @@
 import argparse
 import glob
 import os
-import numpy as np
 import pandas as pd
-import plotly
-import plotly.express as px
-import plotly.graph_objects as go
 import ruptures as rpt
+import graphs as graphs
 
 
 def change_point_detection(temp_data, debug=False):
@@ -69,7 +66,7 @@ def read_timeseries(data_dir):
         # Check for change point at the beginning of time series
         temp_data = change_point_detection(temp_data, debug=True)
         # Resample to day intervals, get median temperature
-        temp_data = temp_data.resample('d', on='Datetime').median()
+        temp_data = temp_data.resample('d', on='Datetime').mean()
         temps.append(temp_data)
 
     # Concatenate all the temperature data files
@@ -77,30 +74,12 @@ def read_timeseries(data_dir):
         temps,
         axis=0,
     )
-    fig = px.line(temp_data, x=temp_data.index, y=temp_data.Temp)
-    fig.update_layout(
-        autosize=False,
-        width=1000,
-        height=700,
-        title="Temperature ",
-        yaxis_title='Temperature (degrees C)',
-        xaxis_title='Date',
-    )
+    # Plot temperatures in one line graph
+    fig = graphs.line_consecutive_years(temp_data)
+    fig.show()
+    # Plot monthly temperatures with years overlaid
+    fig = graphs.line_overlaid_years(temp_data)
+    fig.show()
 
-    # Plot by month and day with years overlaid
-    temps = []
-    for yr in temp_data.index.year.unique():
-        yr_offset = 2000 - yr
-        yr_data = temp_data.copy()
-        yr_data = yr_data[yr_data.index.year == yr]
-        yr_data['Year'] = yr_data.index.year
-        yr_data["Date"] = yr_data.index + pd.offsets.DateOffset(years=yr_offset)
-        temps.append(yr_data)
 
-    yr_data = pd.concat(
-        temps,
-        axis=0,
-    )
-    # TODO: maybe aggregate data more for better visual?
-    fig = px.line(yr_data, x="Date", y="Temp", color='Year')
-    fig.update_layout(xaxis_tickformat="%B-%d")
+
