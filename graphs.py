@@ -1,3 +1,4 @@
+import pandas as pd
 import plotly
 import plotly.express as px
 import plotly.graph_objects as go
@@ -59,3 +60,5 @@ def line_overlaid_years(temp_data):
         yaxis_title='Temperature (degrees C)',
         xaxis_title='Month',
     )
+    fig.update_traces(connectgaps=False)
+    return fig

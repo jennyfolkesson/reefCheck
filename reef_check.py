@@ -2,47 +2,102 @@ import argparse
 import glob
 import os
 import pandas as pd
+import plotly.express as px
 import ruptures as rpt
 import graphs as graphs
 
 
-def change_point_detection(temp_data, debug=False):
+def parse_args():
+    """
+    Parse command line arguments
+
+    :return args: namespace containing the arguments passed.
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--dir', '-d',
+        type=str,
+        help='Path to directory containing temperature csv files',
+    )
+    return parser.parse_args()
+
+
+def change_point_detection(temp_data, nbr_days=14, penalty=50, debug=False):
     """
     Searches for a change point in the first 10 days of time series and
     cuts off the rows before a detected change point.
 
     :param pd.DataFrame temp_data: Temperature time series data
+    :param int nbr_days: Number of days to use for change point detection
+    :param bool debug: Generates debug plot if True
     :return pd.DataFrame cropped_data: Temperature time series with initial temps removed
     """
     cropped_data = temp_data.copy()
     # Get median temperature for each hour
-    hour_median = temp_data.resample('h', on='Datetime').median()
-    # Do change point analysis, assume device is deployed in the first ten days
-    first10 = hour_median.Temp[:240]
-    algo = rpt.Dynp(model="l2", min_size=2)
-    algo.fit(first10.values.reshape(-1, 1))
-    # Only one breakpoint: when thermometer went into the water
-    result = algo.predict(n_bkps=1)
+    hour_mean = temp_data.resample('h', on='Datetime').mean()
+    # Do change point analysis, assume device is deployed in the first couple days
+    nbr_hours = nbr_days * 24
+    first_days = hour_mean.Temp[:nbr_hours]
+    # algo = rpt.Dynp(model="l2", min_size=5)
+    # algo = rpt.Pelt(model="l2", min_size=5)
+    # algo = rpt.Window(model="l2", width=25)
+    algo = rpt.KernelCPD(kernel='linear', min_size=5)
+    algo.fit(first_days.values.reshape(-1, 1))
+    # There should  be only one or zero breakpoints:
+    # when thermometer went into the water
+    result = algo.predict(pen=penalty)
     print(result)
-    if len(result) == 2:
-        # Change point detected
-        change_point = first10.index[result[0]]
+    if len(result) > 1:
+        # Change point detected, use the first one found
+        change_point = first_days.index[result[-2]]
         # Debug plot of result
         if debug:
-            first10 = hour_median.iloc[:240, :]
+            first10 = hour_mean.iloc[:nbr_hours, :]
             fig = px.line(first10, x=first10.index, y=first10.Temp)
-            fig.add_vline(x=change_point, line_dash="dot")
+            for cp in result[:-1]:
+                fig.add_vline(x=first_days.index[cp], line_dash="dot")
             fig.show()
         # Cut off temperature data before deployment
         cropped_data = cropped_data[cropped_data['Datetime'] > change_point]
     return cropped_data
 
 
-def read_timeseries(data_dir):
+def format_data(temp_data, dt_format='%m/%d/%y %I:%M:%S %p'):
+    """
+    Extract datetime and temperature columns from dataframe
+    and format datetime column.
+
+    :param pd.DataFrame temp_data: Temperature data
+    :param str dt_format: Datetime format
+    :return pd.DataFrame temp_data: Formatted dataframe
+    """
+    def find_name(col_names, search_str):
+        found_col = [col for col in col_names if search_str in col.lower()]
+        assert len(found_col) == 1, (
+            "Ambiguous {} column: {}".format(search_str, found_col))
+        return found_col
+
+    col_names = temp_data.columns
+    temp_col = find_name(col_names, 'temp')
+    date_col = find_name(col_names, 'date')
+    temp_data = temp_data[[date_col[0], temp_col[0]]].copy()
+    temp_data.columns = ['Datetime', 'Temp']
+    # Convert to datetime format, all data seem to be formatted the same way
+    temp_data['Datetime'] = pd.to_datetime(
+        temp_data['Datetime'],
+        format=dt_format,
+        errors='coerce',
+    )
+    temp_data.dropna(how='any', inplace=True)
+    return temp_data
+
+
+def read_timeseries(data_dir, resample_rate='d'):
     """
     Given path to data directory, find time series and read them.
 
     :param str data_dir: Data directory
+    :param str resample_rate: Resample time series (default day intervals)
     :return:
     """
     file_paths = glob.glob(os.path.join(data_dir, '*.csv'))
@@ -53,18 +108,9 @@ def read_timeseries(data_dir):
         year = int(file_name.split('_')[1])
         # Skip first row which only contains plot title
         temp_data = pd.read_csv(file_path, skiprows=1)
-        # Remove # column (it's just an index)
-        temp_data.drop(columns=['#'], inplace=True)
-        assert temp_data.shape[1] == 2, "Data should have only Datetime and Temp"
-        temp_data.columns = ['Datetime', 'Temp']
-        # Convert to datetime format, all data seem to be formatted the same way
-        temp_data['Datetime'] = pd.to_datetime(
-            temp_data['Datetime'],
-            format='%m/%d/%y %I:%M:%S %p',
-            errors='coerce',
-        )
+        temp_data = format_data(temp_data)
         # Check for change point at the beginning of time series
-        temp_data = change_point_detection(temp_data, debug=True)
+        temp_data = change_point_detection(temp_data, debug=False)
         # Resample to day intervals, get median temperature
         temp_data = temp_data.resample('d', on='Datetime').mean()
         temps.append(temp_data)
@@ -74,6 +120,14 @@ def read_timeseries(data_dir):
         temps,
         axis=0,
     )
+    # Remove duplicate indices
+    temp_data = temp_data[~temp_data.index.duplicated(keep='first')]
+    # Fill missing dates with NaNs
+    idx = pd.date_range(temp_data.index[0], temp_data.index[-1])
+    temp_data.index = pd.DatetimeIndex(temp_data.index)
+    temp_data = temp_data.reindex(idx, fill_value=pd.NA)
+    # Testing rolling average for smoothness
+    # temp_data = temp_data.rolling('10d').mean()
     # Plot temperatures in one line graph
     fig = graphs.line_consecutive_years(temp_data)
     fig.show()
@@ -82,4 +136,6 @@ def read_timeseries(data_dir):
     fig.show()
 
 
-
+if __name__ == '__main__':
+    args = parse_args()
+    read_timeseries(args.dir)
