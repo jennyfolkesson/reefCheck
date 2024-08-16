@@ -2,7 +2,6 @@ import argparse
 import glob
 import os
 import pandas as pd
-import plotly.express as px
 import ruptures as rpt
 import graphs as graphs
 
@@ -22,13 +21,15 @@ def parse_args():
     return parser.parse_args()
 
 
-def change_point_detection(temp_data, nbr_days=14, penalty=50, debug=False):
+def change_point_detection(temp_data, at_start=True, nbr_days=14, penalty=60, debug=False):
     """
     Searches for a change point in the first 10 days of time series and
     cuts off the rows before a detected change point.
 
     :param pd.DataFrame temp_data: Temperature time series data
+    :param bool at_start: Analyze beginning/end of time series
     :param int nbr_days: Number of days to use for change point detection
+    :param int penalty: Penalty in change point detection algorithm
     :param bool debug: Generates debug plot if True
     :return pd.DataFrame cropped_data: Temperature time series with initial temps removed
     """
@@ -37,28 +38,32 @@ def change_point_detection(temp_data, nbr_days=14, penalty=50, debug=False):
     hour_mean = temp_data.resample('h', on='Datetime').mean()
     # Do change point analysis, assume device is deployed in the first couple days
     nbr_hours = nbr_days * 24
-    first_days = hour_mean.Temp[:nbr_hours]
+    if at_start:
+        few_days = hour_mean.iloc[:nbr_hours]
+    else:
+        few_days = hour_mean.iloc[-nbr_hours:]
     # algo = rpt.Dynp(model="l2", min_size=5)
     # algo = rpt.Pelt(model="l2", min_size=5)
     # algo = rpt.Window(model="l2", width=25)
     algo = rpt.KernelCPD(kernel='linear', min_size=5)
-    algo.fit(first_days.values.reshape(-1, 1))
+    algo.fit(few_days.Temp.values.reshape(-1, 1))
     # There should  be only one or zero breakpoints:
     # when thermometer went into the water
-    result = algo.predict(pen=penalty)
-    print(result)
-    if len(result) > 1:
+    change_points = algo.predict(pen=penalty)
+    if len(change_points) > 1:
         # Change point detected, use the first one found
-        change_point = first_days.index[result[-2]]
+        change_pos = -2
+        if not at_start:
+            change_pos = 0
+        change_point = few_days.index[change_points[change_pos]]
         # Debug plot of result
         if debug:
-            first10 = hour_mean.iloc[:nbr_hours, :]
-            fig = px.line(first10, x=first10.index, y=first10.Temp)
-            for cp in result[:-1]:
-                fig.add_vline(x=first_days.index[cp], line_dash="dot")
-            fig.show()
+            graphs.view_change_points(few_days, change_points)
         # Cut off temperature data before deployment
-        cropped_data = cropped_data[cropped_data['Datetime'] > change_point]
+        if at_start:
+            cropped_data = cropped_data[cropped_data['Datetime'] > change_point]
+        else:
+            cropped_data = cropped_data[cropped_data['Datetime'] < change_point]
     return cropped_data
 
 
@@ -100,6 +105,7 @@ def read_timeseries(data_dir, resample_rate='d'):
     :param str resample_rate: Resample time series (default day intervals)
     :return:
     """
+    site_name = os.path.split(os.path.dirname(data_dir))[-1]
     file_paths = glob.glob(os.path.join(data_dir, '*.csv'))
     file_paths.sort()
     temps = []
@@ -111,8 +117,9 @@ def read_timeseries(data_dir, resample_rate='d'):
         temp_data = format_data(temp_data)
         # Check for change point at the beginning of time series
         temp_data = change_point_detection(temp_data, debug=False)
+        temp_data = change_point_detection(temp_data, at_start=False, debug=False)
         # Resample to day intervals, get median temperature
-        temp_data = temp_data.resample('d', on='Datetime').mean()
+        temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
         temps.append(temp_data)
 
     # Concatenate all the temperature data files
@@ -126,14 +133,13 @@ def read_timeseries(data_dir, resample_rate='d'):
     idx = pd.date_range(temp_data.index[0], temp_data.index[-1])
     temp_data.index = pd.DatetimeIndex(temp_data.index)
     temp_data = temp_data.reindex(idx, fill_value=pd.NA)
-    # Testing rolling average for smoothness
-    # temp_data = temp_data.rolling('10d').mean()
     # Plot temperatures in one line graph
-    fig = graphs.line_consecutive_years(temp_data)
-    fig.show()
-    # Plot monthly temperatures with years overlaid
-    fig = graphs.line_overlaid_years(temp_data)
-    fig.show()
+    # fig = graphs.line_consecutive_years(temp_data, site_name)
+    # fig.show()
+    # # Plot monthly temperatures with years overlaid
+    # fig = graphs.line_overlaid_years(temp_data, site_name)
+    # fig.show()
+    return temp_data, site_name
 
 
 if __name__ == '__main__':

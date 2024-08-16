@@ -15,28 +15,45 @@ COLOR_MAP = {
 }
 
 
-def line_consecutive_years(temp_data):
+def view_change_points(few_days, change_points):
+    fig = px.line(few_days, x=few_days.index, y=few_days.Temp)
+    for cp in change_points[:-1]:
+        fig.add_vline(x=few_days.index[cp], line_dash="dot")
+    fig.update_layout(
+        title="Change Point Detection",
+        yaxis_title='Temperature (degrees C)',
+        xaxis_title='Date',
+    )
+    fig.show()
+
+
+def line_consecutive_years(temp_data, site_name):
     """
     Plot line graph with years/date on the x axis and temperature on y axis
 
     :param pd.DataFrame temp_data: Temperature data
+    :param str site_name: Name of site where temperatures are recorded
     :return px.fig: Figure
     """
     fig = px.line(temp_data, x=temp_data.index, y=temp_data.Temp)
     fig.update_layout(
-        title="Temperature ",
+        autosize=False,
+        width=1000,
+        height=600,
+        title="Water Temperatures at {}".format(site_name),
         yaxis_title='Temperature (degrees C)',
         xaxis_title='Date',
     )
     return fig
 
 
-def line_overlaid_years(temp_data):
+def line_overlaid_years(temp_data, site_name):
     """
     Plot data by month with years overlaid on top of each other on x axis,
     temperature on y axis.
 
     :param pd.DataFrame temp_data: Temperature data
+    :param str site_name: Name of site where temperatures are recorded
     :return px.fig: Figure
     """
     temps = []
@@ -55,8 +72,11 @@ def line_overlaid_years(temp_data):
 
     fig = px.line(yr_data, x="Date", y="Temp", color='Year', color_discrete_map=COLOR_MAP)
     fig.update_layout(
-        xaxis_tickformat="%B",
-        title="Temperature ",
+        autosize=False,
+        width=1000,
+        height=600,
+        xaxis_tickformat="%B %d",
+        title="Monthly water temperatures in {}".format(site_name),
         yaxis_title='Temperature (degrees C)',
         xaxis_title='Month',
     )
