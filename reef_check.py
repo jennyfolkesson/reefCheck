@@ -130,10 +130,10 @@ def read_timeseries(data_dir, resample_rate='d'):
     # Remove duplicate indices
     temp_data = temp_data[~temp_data.index.duplicated(keep='first')]
     # Fill missing dates with NaNs
-    idx = pd.date_range(temp_data.index[0], temp_data.index[-1])
+    idx = pd.date_range(temp_data.index[0], temp_data.index[-1], freq=resample_rate)
     temp_data.index = pd.DatetimeIndex(temp_data.index)
     temp_data = temp_data.reindex(idx, fill_value=pd.NA)
-    # Plot temperatures in one line graph
+    # # Plot temperatures in one line graph
     # fig = graphs.line_consecutive_years(temp_data, site_name)
     # fig.show()
     # # Plot monthly temperatures with years overlaid
