@@ -49,8 +49,8 @@ def line_consecutive_years(temp_data, site_name):
 
 def line_overlaid_years(temp_data, site_name):
     """
-    Plot data by month with years overlaid on top of each other on x axis,
-    temperature on y axis.
+    Plot data by month with years overlaid on top of each other on x-axis,
+    temperature on y-axis.
 
     :param pd.DataFrame temp_data: Temperature data
     :param str site_name: Name of site where temperatures are recorded

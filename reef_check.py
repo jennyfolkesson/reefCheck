@@ -3,7 +3,12 @@ import glob
 import os
 import pandas as pd
 import ruptures as rpt
+import subprocess
+
 import graphs as graphs
+
+
+OISST_URL = "https://www.ncei.noaa.gov/data/sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr/"
 
 
 def parse_args():
@@ -19,6 +24,28 @@ def parse_args():
         help='Path to directory containing temperature csv files',
     )
     return parser.parse_args()
+
+
+def download_oisst(write_dir, year, months=None):
+    # Create directory if not already there
+    os.makedirs(write_dir, exist_ok=True)
+    # Make sure date request is valid (we don't use 2024 data yet)
+    assert 1983 < year < 2024, "Year {} is outside 1983-2023 range.".format(year)
+    if months is None:
+        months = list(range(1, 13))
+    elif isinstance(months, int):
+        months = [months]
+    else:
+        # Make sure elements are unique
+        months = list(set(months))
+        months = [m for m in months if 1 <= m <= 12]
+
+    for month in months:
+        date = "{:4d}{:02d}".format(year, month)
+        oisst_dir = os.path.join(OISST_URL, date)
+        result = subprocess.run(
+            ['wget', '-r', '-l', '1', '-P', write_dir, oisst_dir],
+        )
 
 
 def change_point_detection(temp_data, at_start=True, nbr_days=14, penalty=60, debug=False):
