@@ -1,5 +1,7 @@
 import argparse
 import glob
+import netCDF4
+import numpy as np
 import os
 import pandas as pd
 import ruptures as rpt
@@ -23,29 +25,75 @@ def parse_args():
         type=str,
         help='Path to directory containing temperature csv files',
     )
+    parser.add_argument(
+        '--resample',
+        type=str,
+        default='d',
+        help='Resample rate of data. Default: d=day. Could do W=week',
+    )
     return parser.parse_args()
 
 
-def download_oisst(write_dir, year, months=None):
+def download_oisst(write_dir, years, months=None):
+    """
+    Downloads NOAA's OISST sea surface temperature data set for a given
+    year and months within that year.
+
+    :param str write_dir: Directory to write downloaded files to
+    :param list[int] years: Years in range [1983, 2023]
+    :param list[int] months: List of months as ints  in range[1, 12].
+        Load all year if None.
+    """
     # Create directory if not already there
     os.makedirs(write_dir, exist_ok=True)
     # Make sure date request is valid (we don't use 2024 data yet)
-    assert 1983 < year < 2024, "Year {} is outside 1983-2023 range.".format(year)
+    if isinstance(years, int):
+        years = [years]
+    else:
+        assert isinstance(years, list), "Years must be int or list of ints"
+        years = [y for y in years if 1984 <= y <= 2023]
     if months is None:
         months = list(range(1, 13))
     elif isinstance(months, int):
         months = [months]
     else:
+        assert isinstance(months, list), "Months must be int or list of ints"
         # Make sure elements are unique
         months = list(set(months))
         months = [m for m in months if 1 <= m <= 12]
 
-    for month in months:
-        date = "{:4d}{:02d}".format(year, month)
-        oisst_dir = os.path.join(OISST_URL, date)
-        result = subprocess.run(
-            ['wget', '-r', '-l', '1', '-P', write_dir, oisst_dir],
-        )
+    for year in years:
+        for month in months:
+            date = "{:4d}{:02d}".format(year, month)
+            oisst_dir = os.path.join(OISST_URL, date)
+            result = subprocess.run(
+                ['wget', '-nc', '-r', '-l', '1', '-P', write_dir, oisst_dir],
+            )
+
+
+def get_geo_coords(site_name, write_dir):
+    sst_path = os.path.join(
+        write_dir,
+        'oisst',
+        OISST_URL.replace("https://", ""),
+    )
+    # Get only one directory
+    one_dir = glob.glob(os.path.join(sst_path, '[!index]*'))[0]
+    one_file = glob.glob(os.path.join(one_dir, 'oisst-avhrr*'))
+    # Read CDF4 file
+    oisst = netCDF4.Dataset(one_file)
+    lat, lon = oisst.variables['lat'], oisst.variables['lon']
+    # Sea surface temperature
+    SST = oisst.variables['sst']
+    sst = SST[:]
+
+    # Read metadata file
+    reef_path = os.path.join(write_dir,  "Reef Check_Current Hobo Deployments_2022.csv")
+    reef_meta = pd.read_csv(reef_path)
+    # TODO: get lat, lon for site and find nearest geograpich coordinate in OISST data
+
+    idx_lat = (np.abs(lat - site_lat)).argmin()
+    idy_lon = (np.abs(lon - site_lon)).argmin()
 
 
 def change_point_detection(temp_data, at_start=True, nbr_days=14, penalty=60, debug=False):
@@ -126,12 +174,14 @@ def format_data(temp_data, dt_format='%m/%d/%y %I:%M:%S %p'):
 
 def read_timeseries(data_dir, resample_rate='d'):
     """
-    Given path to data directory, find time series and read them.
+    Given path to data directory for a specific site,
+    find time series and read them.
 
     :param str data_dir: Data directory
-    :param str resample_rate: Resample time series (default day intervals)
+    :param str resample_rate: Resample time series (default d=day)
     :return:
     """
+
     site_name = os.path.split(os.path.dirname(data_dir))[-1]
     file_paths = glob.glob(os.path.join(data_dir, '*.csv'))
     file_paths.sort()
@@ -171,4 +221,4 @@ def read_timeseries(data_dir, resample_rate='d'):
 
 if __name__ == '__main__':
     args = parse_args()
-    read_timeseries(args.dir)
+    read_timeseries(args.dir, args.resample)
