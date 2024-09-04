@@ -71,29 +71,51 @@ def download_oisst(write_dir, years, months=None):
             )
 
 
-def get_geo_coords(site_name, write_dir):
+def read_oisst_file(file_path):
+    # Read CDF4 file
+    oisst = netCDF4.Dataset(file_path)
+    sst_lat = oisst.variables['lat'][:].data
+    sst_lon = oisst.variables['lon'][:].data
+
+    # Sea surface temperature
+    sst = np.squeeze(oisst.variables['sst'][:])
+    sst_mask = sst.mask
+    sst = sst.data
+    # Mask out land masses
+    sst[sst_mask] = np.nan
+
+    return sst, sst_lat, sst_lon
+
+
+def get_sst_path(write_dir):
     sst_path = os.path.join(
         write_dir,
         'oisst',
         OISST_URL.replace("https://", ""),
     )
+    return sst_path
+
+
+def match_coords(site_name, write_dir):
+
+    sst_path = get_sst_path(write_dir)
     # Get only one directory
     one_dir = glob.glob(os.path.join(sst_path, '[!index]*'))[0]
-    one_file = glob.glob(os.path.join(one_dir, 'oisst-avhrr*'))
-    # Read CDF4 file
-    oisst = netCDF4.Dataset(one_file)
-    lat, lon = oisst.variables['lat'], oisst.variables['lon']
-    # Sea surface temperature
-    SST = oisst.variables['sst']
-    sst = SST[:]
+    one_file = glob.glob(os.path.join(one_dir, 'oisst-avhrr*'))[0]
+
+    sst, sst_lat, sst_lon = read_oisst_file(one_file)
 
     # Read metadata file
     reef_path = os.path.join(write_dir,  "Reef Check_Current Hobo Deployments_2022.csv")
     reef_meta = pd.read_csv(reef_path)
-    # TODO: get lat, lon for site and find nearest geograpich coordinate in OISST data
+    # TODO: get lat, lon for site and find nearest point in the OISST data
+    site_meta = reef_meta[reef_meta['Site'] == site_name]
+    site_lat = site_meta['Site Lat'][0]
+    # Add 360 to match oisst system
+    site_lon = site_meta['Site Long'][0] + 360
 
-    idx_lat = (np.abs(lat - site_lat)).argmin()
-    idy_lon = (np.abs(lon - site_lon)).argmin()
+    idx_lat = (np.abs(sst_lat - site_lat)).argmin()
+    idx_lon = (np.abs(sst_lon - site_lon)).argmin()
 
 
 def change_point_detection(temp_data, at_start=True, nbr_days=14, penalty=60, debug=False):

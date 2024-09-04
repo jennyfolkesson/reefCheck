@@ -1,7 +1,9 @@
+import numpy as np
 import pandas as pd
 import plotly
 import plotly.express as px
 import plotly.graph_objects as go
+import xarray as xr
 
 # plotly.colors.sequential YlGnBu
 COLOR_MAP = {
@@ -81,4 +83,23 @@ def line_overlaid_years(temp_data, site_name):
         xaxis_title='Month',
     )
     fig.update_traces(connectgaps=False)
+    return fig
+
+
+def oisst_map(sst, sst_lat, sst_lon):
+
+    fig = px.imshow(
+        sst,
+        color_continuous_scale='RdBu_r',
+        origin='lower',
+        x=sst_lon,
+        y=sst_lat,
+    )
+    fig.update_layout(
+        width=1000,
+        height=600,
+        coloraxis_colorbar=dict(
+            title='Sea Surface Temp<br>Deg C',
+        ),
+    )
     return fig
