@@ -98,6 +98,8 @@ def oisst_map(sst, sst_lat, sst_lon):
     fig.update_layout(
         width=1000,
         height=600,
+        xaxis_title="Longitude (degrees East)",
+        yaxis_title="Latitude",
         coloraxis_colorbar=dict(
             title='Sea Surface Temp<br>Deg C',
         ),

@@ -26,6 +26,11 @@ def parse_args():
         help='Path to directory containing temperature csv files',
     )
     parser.add_argument(
+        '--site',
+        type=str,
+        help='Site name',
+    )
+    parser.add_argument(
         '--resample',
         type=str,
         default='d',
@@ -72,7 +77,16 @@ def download_oisst(write_dir, years, months=None):
 
 
 def read_oisst_file(file_path):
-    # Read CDF4 file
+    """
+    Read CDF4 file containing one day of OISST data.
+    OISST longitude coordinates are in degrees East, ranged [0, 360].
+    Reef check longitude is in [-180, 180] interval.
+
+    :param str file_path: Path to a daily OISST CDF4 file
+    :return array sst: Sea surface temperature array (720, 1440)
+    :return array sst_lat: Latitude coordinates (720,)
+    :return array sst_lon: Longitude coordinates (1440,)
+    """
     oisst = netCDF4.Dataset(file_path)
     sst_lat = oisst.variables['lat'][:].data
     sst_lon = oisst.variables['lon'][:].data
@@ -96,26 +110,30 @@ def get_sst_path(write_dir):
     return sst_path
 
 
-def match_coords(site_name, write_dir):
+def match_coords(site_meta, data_dir):
+    """
+    Match coordinates of Reef Check site to coordinates of OISST data.
 
-    sst_path = get_sst_path(write_dir)
-    # Get only one directory
+    :param pd.DataFrame site_meta: Reef Check metadata for site
+    :param str data_dir: Path to directory containing reef check and OISST data
+    #TODO: These could be separated in the future
+    :return int idx_lat: Index of OISST latitude with closest match to reef check
+    :return int idx_lon: Index of OISST longitude with closest match to reef check
+    """
+    sst_path = get_sst_path(data_dir)
+    # Read one OISST file
     one_dir = glob.glob(os.path.join(sst_path, '[!index]*'))[0]
     one_file = glob.glob(os.path.join(one_dir, 'oisst-avhrr*'))[0]
-
     sst, sst_lat, sst_lon = read_oisst_file(one_file)
-
-    # Read metadata file
-    reef_path = os.path.join(write_dir,  "Reef Check_Current Hobo Deployments_2022.csv")
-    reef_meta = pd.read_csv(reef_path)
-    # TODO: get lat, lon for site and find nearest point in the OISST data
-    site_meta = reef_meta[reef_meta['Site'] == site_name]
-    site_lat = site_meta['Site Lat'][0]
-    # Add 360 to match oisst system
-    site_lon = site_meta['Site Long'][0] + 360
-
+    # get lat, lon for site and find nearest point in the OISST data
+    site_lat = site_meta['Site Lat'].item()
+    # Add 360 to match oisst system (this works because all sites are on US west coast)
+    site_lon = site_meta['Site Long'].item() + 360
+    # Find the coordinates of the closest matching OISST data point
+    # TODO: Upsample and interpolate OISST data for better match?
     idx_lat = (np.abs(sst_lat - site_lat)).argmin()
     idx_lon = (np.abs(sst_lon - site_lon)).argmin()
+    return idx_lat, idx_lon
 
 
 def change_point_detection(temp_data, at_start=True, nbr_days=14, penalty=60, debug=False):
@@ -201,16 +219,12 @@ def read_timeseries(data_dir, resample_rate='d'):
 
     :param str data_dir: Data directory
     :param str resample_rate: Resample time series (default d=day)
-    :return:
+    :return pd.DataFrame temp_data: Temperature timeseries for site
     """
-
-    site_name = os.path.split(os.path.dirname(data_dir))[-1]
     file_paths = glob.glob(os.path.join(data_dir, '*.csv'))
     file_paths.sort()
     temps = []
     for file_path in file_paths:
-        file_name = os.path.basename(file_path)
-        year = int(file_name.split('_')[1])
         # Skip first row which only contains plot title
         temp_data = pd.read_csv(file_path, skiprows=1)
         temp_data = format_data(temp_data)
@@ -232,15 +246,31 @@ def read_timeseries(data_dir, resample_rate='d'):
     idx = pd.date_range(temp_data.index[0], temp_data.index[-1], freq=resample_rate)
     temp_data.index = pd.DatetimeIndex(temp_data.index)
     temp_data = temp_data.reindex(idx, fill_value=pd.NA)
+    return temp_data
+
+
+def site_temperature(data_dir, site_name, resample_rate):
+    # Read metadata file
+    reef_path = os.path.join(data_dir,  "Reef Check_Current Hobo Deployments_2022.csv")
+    reef_meta = pd.read_csv(reef_path)
+    site_meta = reef_meta[reef_meta['Site'] == site_name]
+    region = site_meta['Region'].item()
+    region = region.replace('CA', 'California')
+    site_dir = os.path.join(data_dir, region, site_name)
+    temp_data = read_timeseries(site_dir, resample_rate=resample_rate)
     # # Plot temperatures in one line graph
     # fig = graphs.line_consecutive_years(temp_data, site_name)
     # fig.show()
     # # Plot monthly temperatures with years overlaid
     # fig = graphs.line_overlaid_years(temp_data, site_name)
     # fig.show()
-    return temp_data, site_name
+
+    # Get indices that match OISST coordinates best
+    idx_lat, idx_lon = match_coords(site_meta, data_dir)
+    #TODO: Get site time range and read matching oisst data for site to compare
+
 
 
 if __name__ == '__main__':
     args = parse_args()
-    read_timeseries(args.dir, args.resample)
+    read_timeseries(args.dir, args.site, args.resample)
