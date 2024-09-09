@@ -37,7 +37,12 @@ def line_consecutive_years(temp_data, site_name):
     :param str site_name: Name of site where temperatures are recorded
     :return px.fig: Figure
     """
-    fig = px.line(temp_data, x=temp_data.index, y=temp_data.Temp)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=temp_data.index, y=temp_data["Temp"], name='Reef Check'))
+    if 'SST' in list(temp_data):
+        fig.add_trace(go.Scatter(
+            x=temp_data.index, y=temp_data["SST"], name='Sea Surface Temp'))
     fig.update_layout(
         autosize=False,
         width=1000,

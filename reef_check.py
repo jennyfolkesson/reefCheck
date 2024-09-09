@@ -69,11 +69,28 @@ def download_oisst(write_dir, years, months=None):
 
     for year in years:
         for month in months:
-            date = "{:4d}{:02d}".format(year, month)
-            oisst_dir = os.path.join(OISST_URL, date)
+            oisst_dir = _get_oisst_dir(year, month)
             result = subprocess.run(
                 ['wget', '-nc', '-r', '-l', '1', '-P', write_dir, oisst_dir],
             )
+
+
+def _get_oisst_dir(year, month, write_dir=None):
+    """
+    Return path to oisst data given year and month
+
+    :param int year: Year
+    :param int month: Month
+    :param str/None write_dir: If files are stored locally within data_dir or to url
+    :return str oisst_dir: Directory containing SST data for year and month
+    """
+    date = "{:4d}{:02d}".format(year, month)
+    if write_dir is not None:
+        oisst_dir = get_sst_path(write_dir)
+        oisst_dir = os.path.join(oisst_dir, date)
+    else:
+        oisst_dir = os.path.join(OISST_URL, date)
+    return oisst_dir
 
 
 def read_oisst_file(file_path):
@@ -110,6 +127,26 @@ def get_sst_path(write_dir):
     return sst_path
 
 
+def _lon180to360(lon):
+    """
+    Convert longitudes from [-180,180] to [0,360]
+
+    :param float lon: Longitude in [-180, 180] range
+    :return float lon: Longitude in [0, 360] range
+    """
+    return ((lon - 180) % 360) - 180
+
+
+def _lon360to180(lon):
+    """
+    Convert longitudes from [0, 360] to [-180, 180] interval
+
+    :param float lon: Longitude in [0, 360] range
+    :return float lon: Longitude in [-180, 180] range
+    """
+    return lon % 360
+
+
 def match_coords(site_meta, data_dir):
     """
     Match coordinates of Reef Check site to coordinates of OISST data.
@@ -127,10 +164,10 @@ def match_coords(site_meta, data_dir):
     sst, sst_lat, sst_lon = read_oisst_file(one_file)
     # get lat, lon for site and find nearest point in the OISST data
     site_lat = site_meta['Site Lat'].item()
-    # Add 360 to match oisst system (this works because all sites are on US west coast)
-    site_lon = site_meta['Site Long'].item() + 360
+    # Convert longitude to match oisst system (which is in 360 East)
+    site_lon = _lon360to180(site_meta['Site Long'].item())
     # Find the coordinates of the closest matching OISST data point
-    # TODO: Upsample and interpolate OISST data for better match?
+    # TODO: Upsample/interpolate OISST data for better match?
     idx_lat = (np.abs(sst_lat - site_lat)).argmin()
     idx_lon = (np.abs(sst_lon - site_lon)).argmin()
     return idx_lat, idx_lon
@@ -212,12 +249,13 @@ def format_data(temp_data, dt_format='%m/%d/%y %I:%M:%S %p'):
     return temp_data
 
 
-def read_timeseries(data_dir, resample_rate='d'):
+def read_timeseries(data_dir, deploy_meta, resample_rate='d'):
     """
     Given path to data directory for a specific site,
     find time series and read them.
 
     :param str data_dir: Data directory
+    :param pd.DataFrame deploy_meta: Metadata with dates for deployed/retrieved
     :param str resample_rate: Resample time series (default d=day)
     :return pd.DataFrame temp_data: Temperature timeseries for site
     """
@@ -228,6 +266,7 @@ def read_timeseries(data_dir, resample_rate='d'):
         # Skip first row which only contains plot title
         temp_data = pd.read_csv(file_path, skiprows=1)
         temp_data = format_data(temp_data)
+        # TODO: Crop times according to Deployed and Retrieved
         # Check for change point at the beginning of time series
         temp_data = change_point_detection(temp_data, debug=False)
         temp_data = change_point_detection(temp_data, at_start=False, debug=False)
@@ -250,14 +289,19 @@ def read_timeseries(data_dir, resample_rate='d'):
 
 
 def site_temperature(data_dir, site_name, resample_rate):
+    # Read deployment metadata
+    reef_path = os.path.join(data_dir, 'HOBO_deployment_metadata.csv')
+    deploy_meta = pd.read_csv(reef_path)
+    deploy_site = deploy_meta[deploy_meta['Site_Name'] == site_name]
     # Read metadata file
     reef_path = os.path.join(data_dir,  "Reef Check_Current Hobo Deployments_2022.csv")
     reef_meta = pd.read_csv(reef_path)
+    # Get metadata for specific site
     site_meta = reef_meta[reef_meta['Site'] == site_name]
     region = site_meta['Region'].item()
     region = region.replace('CA', 'California')
     site_dir = os.path.join(data_dir, region, site_name)
-    temp_data = read_timeseries(site_dir, resample_rate=resample_rate)
+    temp_data = read_timeseries(site_dir, deploy_meta, resample_rate=resample_rate)
     # # Plot temperatures in one line graph
     # fig = graphs.line_consecutive_years(temp_data, site_name)
     # fig.show()
@@ -267,7 +311,23 @@ def site_temperature(data_dir, site_name, resample_rate):
 
     # Get indices that match OISST coordinates best
     idx_lat, idx_lon = match_coords(site_meta, data_dir)
-    #TODO: Get site time range and read matching oisst data for site to compare
+    # Read matching oisst data for site to compare sea surface temp with Reef Check
+    temp_data['SST'] = pd.NA
+    for site_date in temp_data.index:
+        oisst_dir = _get_oisst_dir(
+            site_date.year,
+            site_date.month,
+            write_dir=data_dir,
+        )
+        date_str = date = "{:4d}{:02d}{:02d}".format(
+            site_date.year, site_date.month, site_date.day,
+        )
+        file_name = "oisst-avhrr-v02r01.{}.nc".format(date_str)
+        file_path = os.path.join(oisst_dir, file_name)
+        sst, _, _ = read_oisst_file(file_path)
+        temp_data.loc[site_date, 'SST'] = sst[idx_lat, idx_lon]
+
+
 
 
 
