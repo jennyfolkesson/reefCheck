@@ -94,13 +94,14 @@ def _get_oisst_dir(year, month, write_dir=None):
     return oisst_dir
 
 
-def read_oisst_file(file_path):
+def read_oisst_file(file_path, mask_out=False):
     """
     Read CDF4 file containing one day of OISST data.
     OISST longitude coordinates are in degrees East, ranged [0, 360].
     Reef check longitude is in [-180, 180] interval.
 
     :param str file_path: Path to a daily OISST CDF4 file
+    :param bool mask_out: Mask out land mass
     :return array sst: Sea surface temperature array (720, 1440)
     :return array sst_lat: Latitude coordinates (720,)
     :return array sst_lon: Longitude coordinates (1440,)
@@ -113,8 +114,9 @@ def read_oisst_file(file_path):
     sst = np.squeeze(oisst.variables['sst'][:])
     sst_mask = sst.mask
     sst = sst.data
-    # Mask out land masses
-    sst[sst_mask] = np.nan
+    if mask_out:
+        # Mask out land masses
+        sst[sst_mask] = np.nan
 
     return sst, sst_lat, sst_lon
 
@@ -343,12 +345,13 @@ def site_temperature(data_dir, site_name, resample_rate='d'):
         file_path = os.path.join(oisst_dir, file_name)
         sst, _, _ = read_oisst_file(file_path)
         temp_data.loc[site_date, 'SST'] = sst[idx_lat, idx_lon]
-        # # Plot temperatures in one line graph
-        # fig = graphs.line_consecutive_years(temp_data, site_name)
-        # fig.show()
-        # # Plot monthly temperatures with years overlaid
-        # fig = graphs.line_overlaid_years(temp_data, site_name)
-        # fig.show()
+    # TODO: Fort Ross coords give no sst, perhaps given coords are on land?
+    # # Plot temperatures in one line graph
+    # fig = graphs.line_consecutive_years(temp_data, site_name)
+    # fig.show()
+    # # Plot monthly temperatures with years overlaid
+    # fig = graphs.line_overlaid_years(temp_data, site_name)
+    # fig.show()
     return temp_data
 
 
