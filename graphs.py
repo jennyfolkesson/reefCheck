@@ -39,10 +39,18 @@ def line_consecutive_years(temp_data, site_name):
     """
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=temp_data.index, y=temp_data["Temp"], name='Reef Check'))
+        x=temp_data.index,
+        y=temp_data["Temp"],
+        name='Reef Check',
+        mode='lines',
+        marker_color='blue'))
     if 'SST' in list(temp_data):
         fig.add_trace(go.Scatter(
-            x=temp_data.index, y=temp_data["SST"], name='Sea Surface Temp'))
+            x=temp_data.index,
+            y=temp_data["SST"],
+            name='Sea Surface Temp',
+            mode='lines',
+            marker_color='red'))
     fig.update_layout(
         autosize=False,
         width=1000,

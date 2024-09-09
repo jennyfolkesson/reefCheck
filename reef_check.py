@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import glob
 import netCDF4
 import numpy as np
@@ -240,45 +241,57 @@ def format_data(temp_data, dt_format='%m/%d/%y %I:%M:%S %p'):
     temp_data = temp_data[[date_col[0], temp_col[0]]].copy()
     temp_data.columns = ['Datetime', 'Temp']
     # Convert to datetime format, all data seem to be formatted the same way
-    temp_data['Datetime'] = pd.to_datetime(
-        temp_data['Datetime'],
-        format=dt_format,
-        errors='coerce',
-    )
+    convert_to_datetime(temp_data, 'Datetime', dt_format)
     temp_data.dropna(how='any', inplace=True)
     return temp_data
 
 
-def read_timeseries(data_dir, deploy_meta, resample_rate='d'):
+def read_timeseries(site_dir, deploy_site=None, resample_rate='d'):
     """
     Given path to data directory for a specific site,
     find time series and read them.
 
-    :param str data_dir: Data directory
-    :param pd.DataFrame deploy_meta: Metadata with dates for deployed/retrieved
+    :param str site_dir: Data directory for specific site name
+    :param pd.DataFrame/None deploy_site: Metadata with dates for deployed/retrieved
+        for a specific site name. If None, do change point detection
     :param str resample_rate: Resample time series (default d=day)
     :return pd.DataFrame temp_data: Temperature timeseries for site
     """
-    file_paths = glob.glob(os.path.join(data_dir, '*.csv'))
-    file_paths.sort()
     temps = []
-    for file_path in file_paths:
-        # Skip first row which only contains plot title
-        temp_data = pd.read_csv(file_path, skiprows=1)
-        temp_data = format_data(temp_data)
-        # TODO: Crop times according to Deployed and Retrieved
-        # Check for change point at the beginning of time series
-        temp_data = change_point_detection(temp_data, debug=False)
-        temp_data = change_point_detection(temp_data, at_start=False, debug=False)
-        # Resample to day intervals, get median temperature
-        temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
-        temps.append(temp_data)
+    if deploy_site is None:
+        file_paths = glob.glob(os.path.join(site_dir, '*.csv'))
+        file_paths.sort()
+        for file_path in file_paths:
+            temp_data = pd.read_csv(file_path, skiprows=1)
+            temp_data = format_data(temp_data)
+            # Check for change point at the beginning of time series
+            temp_data = change_point_detection(temp_data, debug=False)
+            temp_data = change_point_detection(temp_data, at_start=False, debug=False)
+            # Resample to day intervals, get median temperature
+            temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
+            temps.append(temp_data)
+    else:
+        # Loop through deployment metadata for site files
+        for row in deploy_site.itertuples():
+            search_str = row.Dep_ID + '*.csv'
+            file_paths = glob.glob(os.path.join(site_dir, search_str))
+            assert len(file_paths) == 1, "Ambiguous file paths for {}".format(row.Dep_ID)
+            # Skip first row which only contains plot title
+            temp_data = pd.read_csv(file_paths[0], skiprows=1)
+            temp_data = format_data(temp_data)
+            # Exclude times outside of deployment
+            temp_data = temp_data[(temp_data.Datetime > row.Deployed) &
+                                  (temp_data.Datetime <= row.Retrieved)]
+            # Resample to day intervals, get median temperature
+            temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
+            temps.append(temp_data)
 
     # Concatenate all the temperature data files
     temp_data = pd.concat(
         temps,
         axis=0,
     )
+
     # Remove duplicate indices
     temp_data = temp_data[~temp_data.index.duplicated(keep='first')]
     # Fill missing dates with NaNs
@@ -288,10 +301,20 @@ def read_timeseries(data_dir, deploy_meta, resample_rate='d'):
     return temp_data
 
 
-def site_temperature(data_dir, site_name, resample_rate):
+def convert_to_datetime(dataframe, col_name, dt_format):
+    dataframe[col_name] = pd.to_datetime(
+        dataframe[col_name],
+        format=dt_format,
+        errors='coerce',
+    )
+
+
+def site_temperature(data_dir, site_name, resample_rate='d'):
     # Read deployment metadata
     reef_path = os.path.join(data_dir, 'HOBO_deployment_metadata.csv')
     deploy_meta = pd.read_csv(reef_path)
+    convert_to_datetime(deploy_meta, 'Deployed', dt_format='%m/%d/%y %H:%M')
+    convert_to_datetime(deploy_meta, 'Retrieved', dt_format='%m/%d/%y %H:%M')
     deploy_site = deploy_meta[deploy_meta['Site_Name'] == site_name]
     # Read metadata file
     reef_path = os.path.join(data_dir,  "Reef Check_Current Hobo Deployments_2022.csv")
@@ -301,13 +324,7 @@ def site_temperature(data_dir, site_name, resample_rate):
     region = site_meta['Region'].item()
     region = region.replace('CA', 'California')
     site_dir = os.path.join(data_dir, region, site_name)
-    temp_data = read_timeseries(site_dir, deploy_meta, resample_rate=resample_rate)
-    # # Plot temperatures in one line graph
-    # fig = graphs.line_consecutive_years(temp_data, site_name)
-    # fig.show()
-    # # Plot monthly temperatures with years overlaid
-    # fig = graphs.line_overlaid_years(temp_data, site_name)
-    # fig.show()
+    temp_data = read_timeseries(site_dir, deploy_site, resample_rate=resample_rate)
 
     # Get indices that match OISST coordinates best
     idx_lat, idx_lon = match_coords(site_meta, data_dir)
@@ -326,11 +343,15 @@ def site_temperature(data_dir, site_name, resample_rate):
         file_path = os.path.join(oisst_dir, file_name)
         sst, _, _ = read_oisst_file(file_path)
         temp_data.loc[site_date, 'SST'] = sst[idx_lat, idx_lon]
-
-
-
+        # # Plot temperatures in one line graph
+        # fig = graphs.line_consecutive_years(temp_data, site_name)
+        # fig.show()
+        # # Plot monthly temperatures with years overlaid
+        # fig = graphs.line_overlaid_years(temp_data, site_name)
+        # fig.show()
+    return temp_data
 
 
 if __name__ == '__main__':
     args = parse_args()
-    read_timeseries(args.dir, args.site, args.resample)
+    site_temperature(args.dir, args.site, args.resample)
