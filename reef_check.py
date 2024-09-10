@@ -156,7 +156,7 @@ def match_coords(site_meta, data_dir):
 
     :param pd.DataFrame site_meta: Reef Check metadata for site
     :param str data_dir: Path to directory containing reef check and OISST data
-    #TODO: These could be separated in the future
+    #TODO: These paths could be separated
     :return int idx_lat: Index of OISST latitude with closest match to reef check
     :return int idx_lon: Index of OISST longitude with closest match to reef check
     """
@@ -164,15 +164,25 @@ def match_coords(site_meta, data_dir):
     # Read one OISST file
     one_dir = glob.glob(os.path.join(sst_path, '[!index]*'))[0]
     one_file = glob.glob(os.path.join(one_dir, 'oisst-avhrr*'))[0]
-    sst, sst_lat, sst_lon = read_oisst_file(one_file)
+    sst, sst_lat, sst_lon = read_oisst_file(one_file, mask_out=True)
     # get lat, lon for site and find nearest point in the OISST data
     site_lat = site_meta['Site Lat'].item()
     # Convert longitude to match oisst system (which is in 360 East)
     site_lon = _lon360to180(site_meta['Site Long'].item())
     # Find the coordinates of the closest matching OISST data point
-    # TODO: Upsample/interpolate OISST data for better match?
-    idx_lat = (np.abs(sst_lat - site_lat)).argmin()
-    idx_lon = (np.abs(sst_lon - site_lon)).argmin()
+    # TODO: Upsample/interpolate OISST data for better match
+    lon_mesh, lat_mesh = np.meshgrid(
+    np.linspace(sst_lon[0], sst_lon[-1], sst_lon.shape[0]),
+        np.linspace(sst_lat[0], sst_lat[-1], sst_lat.shape[0]),
+    )
+    # Compute distances from site coords to oisst coords
+    dist = (lon_mesh - site_lon) ** 2 + (lat_mesh - site_lat) ** 2
+    # Attribute an arbitraty high distance to land mass
+    dist[sst != sst] = 1000000
+    # Find nearest valid coordinates
+    idx_lat, idx_lon = np.where(dist == dist.min())
+    idx_lat = int(idx_lat[0])
+    idx_lon = int(idx_lon[0])
     return idx_lat, idx_lon
 
 
@@ -345,7 +355,7 @@ def site_temperature(data_dir, site_name, resample_rate='d'):
         file_path = os.path.join(oisst_dir, file_name)
         sst, _, _ = read_oisst_file(file_path)
         temp_data.loc[site_date, 'SST'] = sst[idx_lat, idx_lon]
-    # TODO: Fort Ross coords give no sst, perhaps given coords are on land?
+
     # # Plot temperatures in one line graph
     # fig = graphs.line_consecutive_years(temp_data, site_name)
     # fig.show()
