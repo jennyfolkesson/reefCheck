@@ -29,7 +29,14 @@ def parse_args():
     parser.add_argument(
         '--site',
         type=str,
-        help='Site name',
+        default=None,
+        help='Site name. If None, collect temperatures and SST for all sites.',
+    )
+    parser.add_argument(
+        '--debug',
+        dest="debug",
+        action="store_true",
+        help='Debug status.',
     )
     parser.add_argument(
         '--resample',
@@ -118,7 +125,7 @@ def read_oisst_file(file_path, mask_out=False):
         # Mask out land masses
         sst[sst_mask] = np.nan
 
-    return sst, sst_lat, sst_lon
+    return sst, (sst_lat, sst_lon)
 
 
 def get_sst_path(write_dir):
@@ -150,21 +157,18 @@ def _lon360to180(lon):
     return lon % 360
 
 
-def match_coords(site_meta, data_dir):
+def match_coords(site_meta, sst, sst_coords):
     """
     Match coordinates of Reef Check site to coordinates of OISST data.
 
     :param pd.DataFrame site_meta: Reef Check metadata for site
-    :param str data_dir: Path to directory containing reef check and OISST data
+    :param np.array sst: OISST data matrix
+    :param list sst_coords: OISST nearest (lat, lon) coordinates for site
     #TODO: These paths could be separated
     :return int idx_lat: Index of OISST latitude with closest match to reef check
     :return int idx_lon: Index of OISST longitude with closest match to reef check
     """
-    sst_path = get_sst_path(data_dir)
-    # Read one OISST file
-    one_dir = glob.glob(os.path.join(sst_path, '[!index]*'))[0]
-    one_file = glob.glob(os.path.join(one_dir, 'oisst-avhrr*'))[0]
-    sst, sst_lat, sst_lon = read_oisst_file(one_file, mask_out=True)
+    (sst_lat, sst_lon) = sst_coords
     # get lat, lon for site and find nearest point in the OISST data
     site_lat = site_meta['Site Lat'].item()
     # Convert longitude to match oisst system (which is in 360 East)
@@ -245,12 +249,15 @@ def format_data(temp_data, dt_format='%m/%d/%y %I:%M:%S %p'):
         found_col = [col for col in col_names if search_str in col.lower()]
         assert len(found_col) == 1, (
             "Ambiguous {} column: {}".format(search_str, found_col))
-        return found_col
+        return found_col[0]
 
     col_names = temp_data.columns
     temp_col = find_name(col_names, 'temp')
     date_col = find_name(col_names, 'date')
-    temp_data = temp_data[[date_col[0], temp_col[0]]].copy()
+    temp_data = temp_data[[date_col, temp_col]].copy()
+    # Convert Fahrenheit to Celcius data
+    if "Temp, °F" in temp_col:
+        temp_data[temp_col] = (temp_data[temp_col] - 32) / 9 * 5
     temp_data.columns = ['Datetime', 'Temp']
     # Convert to datetime format, all data seem to be formatted the same way
     convert_to_datetime(temp_data, 'Datetime', dt_format)
@@ -269,6 +276,7 @@ def read_timeseries(site_dir, deploy_site=None, resample_rate='d'):
     :param str resample_rate: Resample time series (default d=day)
     :return pd.DataFrame temp_data: Temperature timeseries for site
     """
+    # TODO: Some timeseries are given as degress Fahrenheit instead of Celcius
     temps = []
     if deploy_site is None:
         file_paths = glob.glob(os.path.join(site_dir, '*.csv'))
@@ -285,25 +293,25 @@ def read_timeseries(site_dir, deploy_site=None, resample_rate='d'):
     else:
         # Loop through deployment metadata for site files
         for row in deploy_site.itertuples():
-            search_str = row.Dep_ID + '*.csv'
-            file_paths = glob.glob(os.path.join(site_dir, search_str))
-            assert len(file_paths) == 1, "Ambiguous file paths for {}".format(row.Dep_ID)
-            # Skip first row which only contains plot title
-            temp_data = pd.read_csv(file_paths[0], skiprows=1)
-            temp_data = format_data(temp_data)
-            # Exclude times outside of deployment
-            temp_data = temp_data[(temp_data.Datetime > row.Deployed) &
-                                  (temp_data.Datetime <= row.Retrieved)]
-            # Resample to day intervals, get median temperature
-            temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
-            temps.append(temp_data)
-
-    # Concatenate all the temperature data files
+            if row.IsThereData == 'Y':
+                search_str = row.Dep_ID + '*.csv'
+                file_paths = glob.glob(os.path.join(site_dir, search_str))
+                print(file_paths)
+                assert len(file_paths) == 1, "Ambiguous file paths for {}".format(row.Dep_ID)
+                # Skip first row which only contains plot title
+                temp_data = pd.read_csv(file_paths[0], skiprows=1)
+                temp_data = format_data(temp_data)
+                # Exclude times outside of deployment
+                temp_data = temp_data[(temp_data.Datetime > row.Deployed) &
+                                      (temp_data.Datetime <= row.Retrieved)]
+                # Resample to day intervals, get median temperature
+                temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
+                temps.append(temp_data)
+    # Concatenate all the temperature dataframes
     temp_data = pd.concat(
         temps,
         axis=0,
     )
-
     # Remove duplicate indices
     temp_data = temp_data[~temp_data.index.duplicated(keep='first')]
     # Fill missing dates with NaNs
@@ -321,25 +329,43 @@ def convert_to_datetime(dataframe, col_name, dt_format):
     )
 
 
-def site_temperature(data_dir, site_name, resample_rate='d'):
-    # Read deployment metadata
-    reef_path = os.path.join(data_dir, 'HOBO_deployment_metadata.csv')
-    deploy_meta = pd.read_csv(reef_path)
-    convert_to_datetime(deploy_meta, 'Deployed', dt_format='%m/%d/%y %H:%M')
-    convert_to_datetime(deploy_meta, 'Retrieved', dt_format='%m/%d/%y %H:%M')
+def site_temperature(data_dir,
+                     site_name,
+                     deploy_meta,
+                     reef_meta,
+                     sst,
+                     sst_coords,
+                     resample_rate='d',
+                     debug=False):
+    """
+    Read Reef Check temperature data for a given site name.
+    Also reads OISST sea surface temperature data for the coordinates that are
+    the closest to the Reef Check site coordinates not covered by land.
+
+    :param str data_dir: Data directory
+    :param str site_name: Reef Check site name
+    :param pd.DataFrame deploy_meta: Reef Check deployment metadata
+    :param pd.DataFrame reef_meta: Reef Check metadata for sites
+    :param np.array sst: OISST sea surface temperature grid
+    :param list sst_coords: OISST (lat, lon) coordinates closest to site
+    :param str resample_rate: Resample rate for Reef Check data
+    :param bool debug: If true, save a plot for site
+    :return pd.DataFrame temp_data: Temperature data for site
+    """
+    print('Site name', site_name, '-----------------')
     deploy_site = deploy_meta[deploy_meta['Site_Name'] == site_name]
-    # Read metadata file
-    reef_path = os.path.join(data_dir,  "Reef Check_Current Hobo Deployments_2022.csv")
-    reef_meta = pd.read_csv(reef_path)
+    # Sometimes deployment data hasn't been added
+    if deploy_site.shape[0] == 0:
+        return None
     # Get metadata for specific site
     site_meta = reef_meta[reef_meta['Site'] == site_name]
     region = site_meta['Region'].item()
     region = region.replace('CA', 'California')
     site_dir = os.path.join(data_dir, region, site_name)
+    # Read all Reef check timeseries for site
     temp_data = read_timeseries(site_dir, deploy_site, resample_rate=resample_rate)
-
     # Get indices that match OISST coordinates best
-    idx_lat, idx_lon = match_coords(site_meta, data_dir)
+    idx_lat, idx_lon = match_coords(site_meta, sst, sst_coords)
     # Read matching oisst data for site to compare sea surface temp with Reef Check
     temp_data['SST'] = pd.NA
     for site_date in temp_data.index:
@@ -353,18 +379,95 @@ def site_temperature(data_dir, site_name, resample_rate='d'):
         )
         file_name = "oisst-avhrr-v02r01.{}.nc".format(date_str)
         file_path = os.path.join(oisst_dir, file_name)
-        sst, _, _ = read_oisst_file(file_path)
+        sst, _ = read_oisst_file(file_path)
         temp_data.loc[site_date, 'SST'] = sst[idx_lat, idx_lon]
 
-    # # Plot temperatures in one line graph
-    # fig = graphs.line_consecutive_years(temp_data, site_name)
-    # fig.show()
-    # # Plot monthly temperatures with years overlaid
-    # fig = graphs.line_overlaid_years(temp_data, site_name)
-    # fig.show()
+    if debug:
+        # Plot temperatures in one line graph
+        fig = graphs.line_consecutive_years(temp_data, site_name)
+        file_name = "ReefCheck_and_OISST_{}.png".format(site_name)
+        file_path = os.path.join(data_dir, 'Graphs', file_name)
+        fig.write_image(file_path, scale=5)
+
     return temp_data
+
+
+def collect_temperature_data(data_dir,
+                             site_name=None,
+                             resample_rate='d',
+                             debug=False):
+    """
+    Collect Reef Check temperature data and matching OISST sea surface
+    temperature data for sites. Concatenate and save dataframe.
+
+    :param str data_dir: Path to data directory (containing Reef Check and OISST)
+    :param str/None site_name: Site name. None processed all sites
+    :param str resample_rate: Resampling of data. Currently only 'd' works
+    :param bool debug: Writes graph if true
+    """
+
+    # Read deployment metadata
+    reef_path = os.path.join(data_dir, 'HOBO_deployment_metadata.csv')
+    deploy_meta = pd.read_csv(reef_path)
+    convert_to_datetime(
+        deploy_meta,
+        'Deployed',
+        dt_format='%m/%d/%y %H:%M',
+    )
+    convert_to_datetime(
+        deploy_meta,
+        'Retrieved',
+        dt_format='%m/%d/%y %H:%M',
+    )
+    # Read metadata file
+    reef_path = os.path.join(
+        data_dir,
+        "Reef Check_Current Hobo Deployments_2022.csv",
+    )
+    reef_meta = pd.read_csv(reef_path)
+    # Get one OISST file to match coordinates with
+    sst_path = get_sst_path(data_dir)
+    # Read one OISST file
+    one_dir = glob.glob(os.path.join(sst_path, '[!index]*'))[0]
+    one_file = glob.glob(os.path.join(one_dir, 'oisst-avhrr*'))[0]
+    sst, sst_coords = read_oisst_file(one_file, mask_out=True)
+    # Make sure there's a directory for graphs if debug
+    if debug:
+        debug_dir = os.path.join(data_dir, 'Graphs')
+        os.makedirs(debug_dir, exist_ok=True)
+    # Get site names to analyze
+    if isinstance(site_name, str):
+        site_names = [site_name]
+    elif site_name is None:
+        site_names = list(reef_meta['Site'])
+    # Loop through sites
+    temperatures = []
+    for site_name in site_names:
+        temperature_data = site_temperature(
+            data_dir,
+            site_name,
+            deploy_meta,
+            reef_meta,
+            sst,
+            sst_coords,
+            resample_rate=resample_rate,
+            debug=True,
+        )
+        if temperature_data is not None:
+            # Add site name since all data will be concatenated
+            temperature_data['Site'] = site_name
+            temperatures.append(temperature_data)
+    # Concatenate all the temperature dataframes
+    temperature_data = pd.concat(
+        temperatures,
+        axis=0,
+    )
+    temperature_data.to_csv(
+        os.path.join(data_dir, "merged_reefcheck_oisst_data.csv"),
+        index=False,
+    )
 
 
 if __name__ == '__main__':
     args = parse_args()
-    site_temperature(args.dir, args.site, args.resample)
+    collect_temperature_data(args.dir, args.site, args.resample, args.debug)
