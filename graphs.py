@@ -1,9 +1,10 @@
 import numpy as np
+import os
 import pandas as pd
 import plotly
 import plotly.express as px
 import plotly.graph_objects as go
-import xarray as xr
+
 
 # plotly.colors.sequential YlGnBu
 COLOR_MAP = {
@@ -43,14 +44,14 @@ def line_consecutive_years(temp_data, site_name):
         y=temp_data["Temp"],
         name='Reef Check',
         mode='lines',
-        marker_color='blue'))
+    ))
     if 'SST' in list(temp_data):
         fig.add_trace(go.Scatter(
             x=temp_data.index,
             y=temp_data["SST"],
             name='Sea Surface Temp',
             mode='lines',
-            marker_color='red'))
+        ))
     fig.update_layout(
         autosize=False,
         width=1000,
@@ -118,3 +119,58 @@ def oisst_map(sst, sst_lat, sst_lon):
         ),
     )
     return fig
+
+
+def coordinate_map(reef_meta):
+    """
+    Plots geographic coordinates for Reef Check sites as well as the closest matching
+    OISST coordinates.
+
+    :param pd.DataFrame reef_meta: Contains Reef Check and OISST coordinates for sites
+    :return px.Fig: Figure
+    """
+    fig = go.Figure()
+    fig.add_trace(go.Scattermap(
+        lat=reef_meta['Site Lat'],
+        lon=reef_meta['Site Long'],
+        mode='markers',
+        marker=go.scattermap.Marker(
+            size=10,
+            color='rgb(0, 0, 255)',
+            opacity=0.7
+        ),
+        text=reef_meta['Site'],
+        hoverinfo='text'
+    ))
+    fig.add_trace(go.Scattermap(
+        lat=reef_meta['sst_lat'],
+        lon=reef_meta['sst_lon'],
+        mode='markers',
+        marker=go.scattermap.Marker(
+            size=10,
+            color='rgb(0, 255, 0)',
+            opacity=0.7
+        ),
+        text=reef_meta['Site'],
+        hoverinfo='text'
+    ))
+    fig.update_layout(
+        title='Reef Check and OISST Coordinates',
+        autosize=False,
+        width=1100,
+        height=1000,
+        hovermode='closest',
+        showlegend=False,
+        map=dict(
+            bearing=0,
+            center=dict(
+                lat=reef_meta['Site Lat'].mean(),
+                lon=reef_meta['Site Long'].mean(),
+            ),
+            pitch=0,
+            zoom=6,
+            style='light'
+        ),
+    )
+    return fig
+
