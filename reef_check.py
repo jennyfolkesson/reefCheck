@@ -503,7 +503,7 @@ def read_data_and_coords(data_dir):
     # Make sure Date column is datetime
     temp_data = pd.read_csv(existing_file[0])
     temp_data['Date'] = pd.to_datetime(temp_data['Date'], errors='coerce')
-    temp_data = temp_data.set_index('Date')
+    # temp_data = temp_data.set_index('Date')
     # Read coordinates for all sites
     reef_path = os.path.join(data_dir, "reefcheck_and_oisst_coords.csv")
     reef_meta = pd.read_csv(reef_path)

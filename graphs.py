@@ -40,14 +40,14 @@ def line_consecutive_years(temp_data, site_name):
     """
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=temp_data.index,
+        x=temp_data['Date'],
         y=temp_data["Temp"],
         name='Reef Check',
         mode='lines',
     ))
     if 'SST' in list(temp_data):
         fig.add_trace(go.Scatter(
-            x=temp_data.index,
+            x=temp_data['Date'],
             y=temp_data["SST"],
             name='Sea Surface Temp',
             mode='lines',
@@ -73,12 +73,12 @@ def line_overlaid_years(temp_data, site_name):
     :return px.fig: Figure
     """
     temps = []
-    for yr in temp_data.index.year.unique():
+    for yr in temp_data['Date'].dt.year.unique():
         yr_offset = 2000 - yr
         yr_data = temp_data.copy()
-        yr_data = yr_data[yr_data.index.year == yr]
-        yr_data['Year'] = yr_data.index.year
-        yr_data["Date"] = yr_data.index + pd.offsets.DateOffset(years=yr_offset)
+        yr_data = yr_data[yr_data['Date'].dt.year == yr]
+        yr_data['Year'] = yr_data['Date'].dt.year
+        yr_data["Date"] = yr_data['Date'] + pd.offsets.DateOffset(years=yr_offset)
         temps.append(yr_data)
 
     yr_data = pd.concat(
@@ -137,7 +137,7 @@ def coordinate_map(reef_meta):
         marker=go.scattermap.Marker(
             size=10,
             color='rgb(0, 0, 255)',
-            opacity=0.7
+            opacity=0.5,
         ),
         text=reef_meta['Site'],
         hoverinfo='text'
@@ -148,8 +148,8 @@ def coordinate_map(reef_meta):
         mode='markers',
         marker=go.scattermap.Marker(
             size=10,
-            color='rgb(0, 255, 0)',
-            opacity=0.7
+            color='rgb(255, 0, 0)',
+            opacity=0.5,
         ),
         text=reef_meta['Site'],
         hoverinfo='text'
@@ -174,3 +174,78 @@ def coordinate_map(reef_meta):
     )
     return fig
 
+
+def line_avg_temps(temp_data, freq='1D'):
+
+    temp_mean = temp_data.copy()
+    temp_mean = temp_mean.drop('Site', axis=1)
+    temp_stats = temp_mean.groupby(
+        pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
+    ).mean()
+    temp_std = temp_mean.groupby(
+        pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
+    ).std()
+    temp_stats['Temp_2std'] = temp_std['Temp']
+    temp_stats['SST_2std'] = temp_std['SST']
+    temp_stats = temp_stats.dropna(subset=['Temp_2std'])
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        name='+std SST',
+        x=temp_stats.index,
+        y=temp_stats['SST'] + temp_stats['SST_2std'],
+        mode='lines',
+        marker=dict(color='rgb(255, 0, 0)'),
+        line=dict(width=0),
+        showlegend=False,
+        opacity=0.5,
+    ))
+    fig.add_trace(go.Scatter(
+        name='-std SST',
+        x=temp_stats.index,
+        y=temp_stats['SST'] - temp_stats['SST_2std'],
+        marker=dict(color='rgb(255, 0, 0)'),
+        line=dict(width=0),
+        mode='lines',
+        fillcolor='#EA8787',
+        fill='tonexty',
+        opacity=0.5,
+        showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        name='+std',
+        x=temp_stats.index,
+        y=temp_stats['Temp'] + temp_stats['Temp_2std'],
+        mode='lines',
+        marker=dict(color='rgb(0, 0, 255)'),
+        line=dict(width=0),
+        opacity=0.5,
+        showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        name='-std',
+        x=temp_stats.index,
+        y=temp_stats['Temp'] - temp_stats['Temp_2std'],
+        marker=dict(color='rgb(0, 0, 255)'),
+        line=dict(width=0),
+        mode='lines',
+        fillcolor='#87B8EA',
+        fill='tonexty',
+        opacity=0.5,
+        showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        name='Sea Surface Temperature',
+        x=temp_stats.index,
+        y=temp_stats['SST'],
+        mode='lines',
+        line=dict(color='rgb(255, 0, 0)'),
+    ))
+    fig.add_trace(go.Scatter(
+        name='Reef Check Temperature',
+        x=temp_stats.index,
+        y=temp_stats['Temp'],
+        mode='lines',
+        line=dict(color='rgb(0, 0, 255)'),
+    ))
+    return fig
