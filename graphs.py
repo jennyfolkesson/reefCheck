@@ -92,7 +92,7 @@ def line_overlaid_years(temp_data, site_name):
         width=1000,
         height=600,
         xaxis_tickformat="%B %d",
-        title="Monthly water temperatures in {}".format(site_name),
+        title="Water temperatures in {}".format(site_name),
         yaxis_title='Temperature (degrees C)',
         xaxis_title='Month',
     )
@@ -185,53 +185,53 @@ def line_avg_temps(temp_data, freq='1D'):
     temp_std = temp_mean.groupby(
         pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
     ).std()
-    temp_stats['Temp_2std'] = temp_std['Temp']
-    temp_stats['SST_2std'] = temp_std['SST']
-    temp_stats = temp_stats.dropna(subset=['Temp_2std'])
+    temp_stats['Temp_std'] = temp_std['Temp']
+    temp_stats['SST_std'] = temp_std['SST']
+    temp_stats = temp_stats.dropna(subset=['Temp_std'])
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         name='+std SST',
         x=temp_stats.index,
-        y=temp_stats['SST'] + temp_stats['SST_2std'],
+        y=temp_stats['SST'] + temp_stats['SST_std'],
         mode='lines',
-        marker=dict(color='rgb(255, 0, 0)'),
+        marker=dict(color='rgb(255, 0, 0)', opacity=0.75),
         line=dict(width=0),
         showlegend=False,
-        opacity=0.5,
+        opacity=0.75,
     ))
     fig.add_trace(go.Scatter(
         name='-std SST',
         x=temp_stats.index,
-        y=temp_stats['SST'] - temp_stats['SST_2std'],
-        marker=dict(color='rgb(255, 0, 0)'),
+        y=temp_stats['SST'] - temp_stats['SST_std'],
+        marker=dict(color='rgb(255, 0, 0)', opacity=0.75),
         line=dict(width=0),
         mode='lines',
         fillcolor='#EA8787',
         fill='tonexty',
-        opacity=0.5,
+        opacity=0.75,
         showlegend=False,
     ))
     fig.add_trace(go.Scatter(
-        name='+std',
+        name='+std Reef Check',
         x=temp_stats.index,
-        y=temp_stats['Temp'] + temp_stats['Temp_2std'],
+        y=temp_stats['Temp'] + temp_stats['Temp_std'],
         mode='lines',
-        marker=dict(color='rgb(0, 0, 255)'),
+        marker=dict(color='rgb(0, 0, 255)', opacity=0.75),
         line=dict(width=0),
-        opacity=0.5,
+        opacity=0.75,
         showlegend=False,
     ))
     fig.add_trace(go.Scatter(
-        name='-std',
+        name='-std Reef Check',
         x=temp_stats.index,
-        y=temp_stats['Temp'] - temp_stats['Temp_2std'],
-        marker=dict(color='rgb(0, 0, 255)'),
+        y=temp_stats['Temp'] - temp_stats['Temp_std'],
+        marker=dict(color='rgb(0, 0, 255)', opacity=0.75),
         line=dict(width=0),
         mode='lines',
         fillcolor='#87B8EA',
         fill='tonexty',
-        opacity=0.5,
+        opacity=0.75,
         showlegend=False,
     ))
     fig.add_trace(go.Scatter(
@@ -248,4 +248,71 @@ def line_avg_temps(temp_data, freq='1D'):
         mode='lines',
         line=dict(color='rgb(0, 0, 255)'),
     ))
+    return fig
+
+
+def temperature_diff_graph(temperature_data, freq='1D'):
+
+    temps = []
+    for yr in temperature_data['Date'].dt.year.unique():
+        yr_offset = 2000 - yr
+        yr_data = temperature_data.copy()
+        yr_data = yr_data[yr_data['Date'].dt.year == yr]
+        yr_data['Year'] = yr_data['Date'].dt.year
+        yr_data["Date"] = yr_data['Date'] + pd.offsets.DateOffset(years=yr_offset)
+        temps.append(yr_data)
+    yr_data = pd.concat(
+        temps,
+        axis=0,
+    )
+    yr_data['Diff'] = yr_data['SST'] - yr_data['Temp']
+    yr_data = yr_data.drop('Site', axis=1)
+    temp_stats = yr_data.groupby(
+        pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
+    ).mean()
+    temp_std = yr_data.groupby(
+        pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
+    ).std()
+    temp_stats['Diff_std'] = temp_std['Diff']
+    temp_stats = temp_stats.dropna(subset=['Diff_std'])
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        name='+std diff',
+        x=temp_stats.index,
+        y=temp_stats['Diff'] + temp_stats['Diff_std'],
+        mode='lines',
+        marker=dict(color='rgb(0, 0, 255)', opacity=0.75),
+        line=dict(width=0),
+        showlegend=False,
+        opacity=0.75,
+    ))
+    fig.add_trace(go.Scatter(
+        name='-std diff',
+        x=temp_stats.index,
+        y=temp_stats['Diff'] - temp_stats['Diff_std'],
+        marker=dict(color='rgb(0, 0, 255)', opacity=0.75),
+        line=dict(width=0),
+        mode='lines',
+        fillcolor='#87B8EA',
+        fill='tonexty',
+        opacity=0.75,
+        showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        name='SST - Reef Check temperature difference',
+        x=temp_stats.index,
+        y=temp_stats['Diff'],
+        mode='lines',
+        line=dict(color='rgb(0, 0, 255)'),
+    ))
+    fig.update_layout(
+        autosize=False,
+        width=1000,
+        height=600,
+        xaxis_tickformat="%B %d",
+        title="Water temperature difference",
+        yaxis_title='Temperature (degrees C)',
+        xaxis_title='Month',
+    )
     return fig
