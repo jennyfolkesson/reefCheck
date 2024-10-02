@@ -175,10 +175,15 @@ def coordinate_map(reef_meta):
     return fig
 
 
-def line_avg_temps(temp_data, freq='1D'):
+def mean_temperature_lines(temp_data, title_txt=None, freq='1D'):
 
     temp_mean = temp_data.copy()
     temp_mean = temp_mean.drop('Site', axis=1)
+    if 'Region' in list(temp_mean):
+        temp_mean = temp_mean.drop(['Region',
+                                    'Total years of recorded data since 2017',
+                                    'Date last deployed',
+                                    'Ealiest deployment'], axis=1)
     temp_stats = temp_mean.groupby(
         pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
     ).mean()
@@ -248,10 +253,21 @@ def line_avg_temps(temp_data, freq='1D'):
         mode='lines',
         line=dict(color='rgb(0, 0, 255)'),
     ))
+    if title_txt is None:
+        title_txt = "Water temperature difference"
+    fig.update_layout(
+        autosize=False,
+        width=1000,
+        height=500,
+        xaxis_tickformat="%B %Y",
+        title=title_txt,
+        yaxis_title='Temperature (degrees C)',
+        xaxis_title='Date',
+    )
     return fig
 
 
-def temperature_diff_graph(temperature_data, freq='1D'):
+def temperature_diff_graph(temperature_data, freq='1D', title_txt=None):
 
     temps = []
     for yr in temperature_data['Date'].dt.year.unique():
@@ -267,6 +283,11 @@ def temperature_diff_graph(temperature_data, freq='1D'):
     )
     yr_data['Diff'] = yr_data['SST'] - yr_data['Temp']
     yr_data = yr_data.drop('Site', axis=1)
+    if 'Region' in list(yr_data):
+        yr_data = yr_data.drop(['Region',
+                                       'Total years of recorded data since 2017',
+                                       'Date last deployed',
+                                       'Ealiest deployment'], axis=1)
     temp_stats = yr_data.groupby(
         pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
     ).mean()
@@ -306,13 +327,16 @@ def temperature_diff_graph(temperature_data, freq='1D'):
         mode='lines',
         line=dict(color='rgb(0, 0, 255)'),
     ))
+    if title_txt is None:
+        title_txt = "Water temperature difference"
     fig.update_layout(
         autosize=False,
         width=1000,
         height=600,
         xaxis_tickformat="%B",
-        title="Water temperature difference",
+        title=title_txt,
         yaxis_title='Temperature (degrees C)',
         xaxis_title='Month',
+        showlegend=False,
     )
     return fig
