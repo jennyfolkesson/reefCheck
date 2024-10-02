@@ -175,7 +175,7 @@ def coordinate_map(reef_meta):
     return fig
 
 
-def mean_temperature_lines(temp_data, title_txt=None, freq='1D'):
+def mean_temperature_lines(temp_data, freq='1D', title_txt=None):
 
     temp_mean = temp_data.copy()
     temp_mean = temp_mean.drop('Site', axis=1)
