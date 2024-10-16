@@ -487,6 +487,33 @@ def collect_temperature_data(data_dir,
     )
 
 
+def cleanup_sheets(data_dir):
+    dep_path = os.path.join(data_dir, 'HOBO Deployment Log 2017-2023 Data.csv')
+    dep_data = pd.read_csv(dep_path)
+
+    xls_path = os.path.join(data_dir, 'Temperature Time Series Site Codes.xlsx')
+    xls_data = pd.ExcelFile(xls_path)
+    ca_s = pd.read_excel(xls_data, 'CA Southern')
+    ca_s['Region'] = 'Southern California'
+    ca_c = pd.read_excel(xls_data, 'CA Central')
+    ca_c['Region'] = 'Central California'
+    ca_n = pd.read_excel(xls_data, 'CA Northern')
+    ca_n['Region'] = 'Northern California'
+    site_meta = pd.concat([ca_s, ca_c, ca_n], axis=0)
+    site_meta.columns = ['Site', 'Code', 'Region']
+
+    site_coords = dep_data[['Site', 'Lat', 'Lon']].copy()
+    site_coords['Lat'] = pd.to_numeric(site_coords['Lat'], errors='coerce')
+    site_coords['Lon'] = pd.to_numeric(site_coords['Lon'], errors='coerce')
+    site_coords = site_coords.dropna(subset=['Lat'])
+    site_coords = site_coords.groupby('Site', as_index=False).mean()
+    site_meta = site_meta.merge(site_coords, on='Site', how='inner')
+    site_meta.to_csv(
+        os.path.join(data_dir, "reefcheck_code_coords.csv"),
+        index=False,
+    )
+
+
 def read_data_and_coords(data_dir):
     """
     Check if csv file for merged data exists and reads if it does, creates if
