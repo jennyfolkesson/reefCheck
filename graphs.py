@@ -131,8 +131,8 @@ def coordinate_map(reef_meta):
     """
     fig = go.Figure()
     fig.add_trace(go.Scattermap(
-        lat=reef_meta['Site Lat'],
-        lon=reef_meta['Site Long'],
+        lat=reef_meta['Lat'],
+        lon=reef_meta['Lon'],
         mode='markers',
         marker=go.scattermap.Marker(
             size=10,
@@ -164,8 +164,8 @@ def coordinate_map(reef_meta):
         map=dict(
             bearing=0,
             center=dict(
-                lat=reef_meta['Site Lat'].mean(),
-                lon=reef_meta['Site Long'].mean(),
+                lat=reef_meta['Lat'].mean(),
+                lon=reef_meta['Lon'].mean(),
             ),
             pitch=0,
             zoom=6,
@@ -180,10 +180,9 @@ def mean_temperature_lines(temp_data, freq='1D', title_txt=None):
     temp_mean = temp_data.copy()
     temp_mean = temp_mean.drop('Site', axis=1)
     if 'Region' in list(temp_mean):
-        temp_mean = temp_mean.drop(['Region',
-                                    'Total years of recorded data since 2017',
-                                    'Date last deployed',
-                                    'Ealiest deployment'], axis=1)
+        temp_mean = temp_mean.drop(['Region'], axis=1)
+    if 'Code' in list(temp_mean):
+        temp_mean = temp_mean.drop(['Code'], axis=1)
     temp_stats = temp_mean.groupby(
         pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
     ).mean()
@@ -284,10 +283,9 @@ def temperature_diff_graph(temperature_data, freq='1D', title_txt=None):
     yr_data['Diff'] = yr_data['SST'] - yr_data['Temp']
     yr_data = yr_data.drop('Site', axis=1)
     if 'Region' in list(yr_data):
-        yr_data = yr_data.drop(['Region',
-                                       'Total years of recorded data since 2017',
-                                       'Date last deployed',
-                                       'Ealiest deployment'], axis=1)
+        yr_data = yr_data.drop(['Region'], axis=1)
+    if 'Code' in list(yr_data):
+        yr_data = yr_data.drop(['Code'], axis=1)
     temp_stats = yr_data.groupby(
         pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
     ).mean()
