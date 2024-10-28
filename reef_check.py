@@ -358,17 +358,14 @@ def site_temperature(data_dir,
     """
     print('Site name', site_name, '-----------------')
     deploy_site = deploy_meta[deploy_meta['Site'] == site_name]
-    print(deploy_site)
     # Sometimes deployment data hasn't been added
     if deploy_site.shape[0] == 0:
         return None
     # Get metadata for specific site
     site_meta = reef_meta[reef_meta['Site'] == site_name]
-    print(site_meta)
     region = site_meta['Region'].item()
     region = region.replace('CA', 'California')
     site_dir = os.path.join(data_dir, region, site_name)
-    print(site_meta['Code'])
     # Read all Reef check timeseries for site
     temp_data = read_timeseries(
         site_dir=site_dir,
