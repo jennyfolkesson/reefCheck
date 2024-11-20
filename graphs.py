@@ -175,6 +175,32 @@ def coordinate_map(reef_meta):
     return fig
 
 
+def _add_std_trace(fig, temp_stats, std_color, stat_name, tr_name):
+    std_name = "{}_std".format(stat_name)
+    fig.add_trace(go.Scatter(
+        name='+1 std {}'.format(tr_name),
+        x=temp_stats.index,
+        y=temp_stats[stat_name] + temp_stats[std_name],
+        mode='lines',
+        marker=dict(color=std_color, opacity=0.75),
+        line=dict(width=0),
+        showlegend=False,
+        opacity=0.75,
+    ))
+    fig.add_trace(go.Scatter(
+        name='-1 std {}'.format(tr_name),
+        x=temp_stats.index,
+        y=temp_stats[stat_name] - temp_stats[std_name],
+        marker=dict(color=std_color, opacity=0.75),
+        line=dict(width=0),
+        mode='lines',
+        fillcolor=std_color,
+        fill='tonexty',
+        opacity=0.75,
+        showlegend=False,
+    ))
+
+
 def mean_temperature_lines(temp_data, freq='1D', title_txt=None):
 
     temp_mean = temp_data.copy()
@@ -194,50 +220,8 @@ def mean_temperature_lines(temp_data, freq='1D', title_txt=None):
     temp_stats = temp_stats.dropna(subset=['Temp_std'])
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        name='+std SST',
-        x=temp_stats.index,
-        y=temp_stats['SST'] + temp_stats['SST_std'],
-        mode='lines',
-        marker=dict(color='rgb(255, 0, 0)', opacity=0.75),
-        line=dict(width=0),
-        showlegend=False,
-        opacity=0.75,
-    ))
-    fig.add_trace(go.Scatter(
-        name='-std SST',
-        x=temp_stats.index,
-        y=temp_stats['SST'] - temp_stats['SST_std'],
-        marker=dict(color='rgb(255, 0, 0)', opacity=0.75),
-        line=dict(width=0),
-        mode='lines',
-        fillcolor='rgba(255, 0, 0, .2)',  # '#EA8787',
-        fill='tonexty',
-        opacity=0.75,
-        showlegend=False,
-    ))
-    fig.add_trace(go.Scatter(
-        name='+std Reef Check',
-        x=temp_stats.index,
-        y=temp_stats['Temp'] + temp_stats['Temp_std'],
-        mode='lines',
-        marker=dict(color='rgb(0, 0, 255)', opacity=0.75),
-        line=dict(width=0),
-        opacity=0.75,
-        showlegend=False,
-    ))
-    fig.add_trace(go.Scatter(
-        name='-std Reef Check',
-        x=temp_stats.index,
-        y=temp_stats['Temp'] - temp_stats['Temp_std'],
-        marker=dict(color='rgb(0, 0, 255)', opacity=0.75),
-        line=dict(width=0),
-        mode='lines',
-        fillcolor='rgba(0, 0, 255, .2)',  # '#87B8EA',
-        fill='tonexty',
-        opacity=0.75,
-        showlegend=False,
-    ))
+    _add_std_trace(fig, temp_stats, 'rgba(255, 0, 0, .2)', 'SST', 'SST')
+    _add_std_trace(fig, temp_stats, 'rgba(0, 0, 255, .2)', 'Temp', 'Reef Check')
     fig.add_trace(go.Scatter(
         name='Sea Surface Temperature',
         x=temp_stats.index,
@@ -296,28 +280,7 @@ def temperature_diff_graph(temperature_data, freq='1D', title_txt=None):
     temp_stats = temp_stats.dropna(subset=['Diff_std'])
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        name='+std diff',
-        x=temp_stats.index,
-        y=temp_stats['Diff'] + temp_stats['Diff_std'],
-        mode='lines',
-        marker=dict(color='rgb(0, 0, 255)', opacity=0.75),
-        line=dict(width=0),
-        showlegend=False,
-        opacity=0.75,
-    ))
-    fig.add_trace(go.Scatter(
-        name='-std diff',
-        x=temp_stats.index,
-        y=temp_stats['Diff'] - temp_stats['Diff_std'],
-        marker=dict(color='rgb(0, 0, 255)', opacity=0.75),
-        line=dict(width=0),
-        mode='lines',
-        fillcolor='rgba(0, 0, 255, .2)',  # '#87B8EA',
-        fill='tonexty',
-        opacity=0.75,
-        showlegend=False,
-    ))
+    _add_std_trace(fig, temp_stats, 'rgba(0, 0, 255, .2)', 'Diff', 'Diff')
     fig.add_trace(go.Scatter(
         name='SST - Reef Check temperature difference',
         x=temp_stats.index,

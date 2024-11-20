@@ -263,56 +263,66 @@ def format_data(temp_data, dt_format='%m/%d/%y %I:%M:%S %p'):
     return temp_data
 
 
-def read_timeseries(site_dir, site_code, deploy_site=None, resample_rate='d', debug=False):
+def read_timeseries(site_dir, deploy_site=None, resample_rate='d'):
     """
     Given path to data directory for a specific site,
     find time series and read them.
 
     :param str site_dir: Data directory for specific site name
-    :param str site_code: Site letter code
     :param pd.DataFrame/None deploy_site: Metadata with dates for deployed/retrieved
         for a specific site name. If None, do change point detection
     :param str resample_rate: Resample time series (default d=day)
-    :param bool debug: Show debug plot if true
     :return pd.DataFrame temp_data: Temperature timeseries for site
     """
-    temps = []
-    file_paths = glob.glob(os.path.join(site_dir, '*.csv'))
-    print(file_paths)
-    if deploy_site is None:
-        file_paths = glob.glob(os.path.join(site_dir, '*.csv'))
-        file_paths.sort()
-        for file_path in file_paths:
-            temp_data = pd.read_csv(file_path, skiprows=1)
-            temp_data = format_data(temp_data)
-            if temp_data.shape[0] > 1000:
-                # Check for change point at the beginning of time series
-                temp_data = change_point_detection(temp_data, debug=False)
-                temp_data = change_point_detection(temp_data, at_start=False, debug=False)
-                # Resample to day intervals, get median temperature
-                temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
-                temps.append(temp_data)
-    else:
+    def _match_deployment(deploy_site, year, month):
         # Loop through deployment metadata for site files
         for row in deploy_site.itertuples():
-            search_str = '{}_{}_{:02d}*.csv'.format(
-                site_code, row.Deployed.year, row.Deployed.month,
+            if row.Deployed.year == year and row.Deployed.month == month:
+                return row
+        return None
+
+    temps = []
+    file_paths = glob.glob(os.path.join(site_dir, '*.csv'))
+    file_paths.sort()
+    print(file_paths)
+    for file_path in file_paths:
+        file_name = os.path.basename(file_path)
+        file_split = file_name.split('_')
+        if len(file_split) < 3:
+            print("Strange file name: {}".format(file_name))
+            continue
+        try:
+            year = int(file_split[1])
+            month = file_split[2]
+            month = int(month[:2])
+        except ValueError as e:
+            print(e)
+            continue
+        row_match = _match_deployment(deploy_site, year, month)
+        temp_data = pd.read_csv(file_path, skiprows=1)
+        temp_data = format_data(temp_data)
+        nbr_days = 14
+        if row_match is not None:
+            nbr_days = 7
+            temp_data = temp_data[(temp_data.Datetime > row_match.Deployed) &
+                                  (temp_data.Datetime <= row_match.Retrieved)]
+        if temp_data.shape[0] > 1000:
+            # Check for change point at the beginning of time series
+            temp_data = change_point_detection(
+                temp_data=temp_data,
+                nbr_days=nbr_days,
+                debug=False,
             )
-            print(search_str)
-            file_paths = glob.glob(os.path.join(site_dir, search_str))
-            if len(file_paths) == 1:
-                # Skip first row which only contains plot title
-                temp_data = pd.read_csv(file_paths[0], skiprows=1)
-                temp_data = format_data(temp_data)
-                # Exclude times outside of deployment
-                temp_data = temp_data[(temp_data.Datetime > row.Deployed) &
-                                      (temp_data.Datetime <= row.Retrieved)]
-                if temp_data.shape[0] > 1000:
-                    # Although using deployment data, some time series need cropping
-                    temp_data = change_point_detection(temp_data, nbr_days=7, debug=False)
-                    # Resample to day intervals, get median temperature
-                    temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
-                    temps.append(temp_data)
+            temp_data = change_point_detection(
+                temp_data=temp_data,
+                at_start=False,
+                nbr_days=nbr_days,
+                debug=False,
+            )
+            # Resample to day intervals, get median temperature
+            temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
+            temps.append(temp_data)
+
     if len(temps) == 0:
         return None
     # Concatenate all the temperature dataframes
@@ -358,9 +368,6 @@ def site_temperature(data_dir,
     """
     print('Site name', site_name, '-----------------')
     deploy_site = deploy_meta[deploy_meta['Site'] == site_name]
-    # Sometimes deployment data hasn't been added
-    if deploy_site.shape[0] == 0:
-        return None
     # Get metadata for specific site
     site_meta = reef_meta[reef_meta['Site'] == site_name]
     region = site_meta['Region'].item()
@@ -369,7 +376,6 @@ def site_temperature(data_dir,
     # Read all Reef check timeseries for site
     temp_data = read_timeseries(
         site_dir=site_dir,
-        site_code=site_meta['Code'].values[0],
         deploy_site=deploy_site,
         resample_rate=resample_rate,
     )
