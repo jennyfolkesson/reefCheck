@@ -510,7 +510,7 @@ def cleanup_sheets(data_dir):
     site_meta = pd.concat([ca_s, ca_c, ca_n], axis=0)
     site_meta.columns = ['Site', 'Code', 'Region']
     # Join site codes with mean site coordinates
-    site_coords = dep_data[['Site', 'Lat', 'Lon']].copy()
+    site_coords = dep_data[['Site', 'Lat', 'Lon', 'depth (ft)']].copy()
     site_coords['Lat'] = pd.to_numeric(site_coords['Lat'], errors='coerce')
     site_coords['Lon'] = pd.to_numeric(site_coords['Lon'], errors='coerce')
     site_coords = site_coords.dropna(subset=['Lat'])
