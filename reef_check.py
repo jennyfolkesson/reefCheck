@@ -573,4 +573,5 @@ def read_data_and_coords(data_dir):
 
 if __name__ == '__main__':
     args = parse_args()
+    # TODO: Analyze temperature as function of depth?
     collect_temperature_data(args.dir, args.site, args.resample, args.debug)

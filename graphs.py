@@ -30,6 +30,29 @@ def view_change_points(few_days, change_points):
     fig.show()
 
 
+def get_year_data(temperature_data):
+    """
+    Separate year from datetime column.
+
+    :param pd.DataFrame temperature_data: Temperature data
+    :return pd.DataFrame yr_data: Data where year is separated from date
+    """
+    temps = []
+    for yr in temperature_data['Date'].dt.year.unique():
+        yr_offset = 2000 - yr
+        yr_data = temperature_data.copy()
+        yr_data = yr_data[yr_data['Date'].dt.year == yr]
+        yr_data['Year'] = yr_data['Date'].dt.year
+        yr_data['Month'] = yr_data['Date'].dt.month
+        yr_data["Date"] = yr_data['Date'] + pd.offsets.DateOffset(years=yr_offset)
+        temps.append(yr_data)
+    yr_data = pd.concat(
+        temps,
+        axis=0,
+    )
+    return yr_data
+
+
 def line_consecutive_years(temp_data, site_name):
     """
     Plot line graph with years/date on the x axis and temperature on y axis
@@ -63,29 +86,16 @@ def line_consecutive_years(temp_data, site_name):
     return fig
 
 
-def line_overlaid_years(temp_data, site_name):
+def line_overlaid_years(temperature_data, site_name):
     """
     Plot data by month with years overlaid on top of each other on x-axis,
     temperature on y-axis.
 
-    :param pd.DataFrame temp_data: Temperature data
+    :param pd.DataFrame temperature_data: Temperature data
     :param str site_name: Name of site where temperatures are recorded
     :return px.fig: Figure
     """
-    temps = []
-    for yr in temp_data['Date'].dt.year.unique():
-        yr_offset = 2000 - yr
-        yr_data = temp_data.copy()
-        yr_data = yr_data[yr_data['Date'].dt.year == yr]
-        yr_data['Year'] = yr_data['Date'].dt.year
-        yr_data["Date"] = yr_data['Date'] + pd.offsets.DateOffset(years=yr_offset)
-        temps.append(yr_data)
-
-    yr_data = pd.concat(
-        temps,
-        axis=0,
-    )
-
+    yr_data = get_year_data(temperature_data)
     fig = px.line(yr_data, x="Date", y="Temp", color='Year', color_discrete_map=COLOR_MAP)
     fig.update_layout(
         autosize=False,
@@ -251,19 +261,16 @@ def mean_temperature_lines(temp_data, freq='1D', title_txt=None):
 
 
 def temperature_diff_graph(temperature_data, freq='1D', title_txt=None):
+    """
+    Show site temperature difference as a function of month aggregated
+    across years.
 
-    temps = []
-    for yr in temperature_data['Date'].dt.year.unique():
-        yr_offset = 2000 - yr
-        yr_data = temperature_data.copy()
-        yr_data = yr_data[yr_data['Date'].dt.year == yr]
-        yr_data['Year'] = yr_data['Date'].dt.year
-        yr_data["Date"] = yr_data['Date'] + pd.offsets.DateOffset(years=yr_offset)
-        temps.append(yr_data)
-    yr_data = pd.concat(
-        temps,
-        axis=0,
-    )
+    :param pd.DataFrame temperature_data: Temperature data
+    :param str freq: Time frequency (default one day)
+    :param str/None title_txt: Title text for graph
+    :return go.Figure fig: Graph object
+    """
+    yr_data = get_year_data(temperature_data)
     yr_data['Diff'] = yr_data['SST'] - yr_data['Temp']
     yr_data = yr_data.drop('Site', axis=1)
     if 'Region' in list(yr_data):
@@ -294,10 +301,103 @@ def temperature_diff_graph(temperature_data, freq='1D', title_txt=None):
         autosize=False,
         width=1000,
         height=600,
-        xaxis_tickformat="%B",
         title=title_txt,
         yaxis_title='Temperature (degrees C)',
         xaxis_title='Month',
         showlegend=False,
+    )
+    fig.update_xaxes(
+        tickformat='%B',
+        dtick='M1',
+    )
+    return fig
+
+
+def temperature_depth_graph(temperature_data, reef_meta):
+    """
+    Plot circles for each site, where the size of the circle signify depth
+    and the color of the circle is mean temperature in August.
+
+    :param pd.DataFrame temperature_data: Temperature data
+    :param pd.DataFrame reef_meta: Metadata including depth, lat, lon, etc
+    :return go.Figure fig: Graph object
+    """
+    merged_data = temperature_data.merge(reef_meta, on='Site', how='left')
+    yr_data = get_year_data(merged_data)
+    temp_data = yr_data[['Temp', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
+    temp_data = temp_data[temp_data['Month'] == 8]
+    temp_data = temp_data.groupby('Site').mean(numeric_only=True).reset_index()
+    temp_data = temp_data.dropna()
+    temp_data['depth txt'] = temp_data['depth (ft)'].apply(lambda s: "{:.1f}".format(s))
+    temp_data['temp txt'] = temp_data['Temp'].apply(lambda s: "{:.1f}".format(s))
+
+    hover_text = (temp_data['Site'] +
+                  "<br> depth: " + temp_data['depth txt'] +
+                  "<br> temp: " + temp_data['temp txt'])
+    fig = go.Figure()
+    fig.add_trace(go.Scattermap(
+        lat=temp_data['Lat'],
+        lon=temp_data['Lon'],
+        customdata=['Site', 'depth (ft)'],
+        mode='markers',
+        marker=go.scattermap.Marker(
+            size=temp_data['depth (ft)'],
+            color=temp_data['Temp'],
+            colorscale='thermal',
+            showscale=True,
+        ),
+        text=hover_text,
+        hoverinfo='text',
+    ))
+
+    fig.update_layout(
+        title='Reef Check Sensor Depth',
+        autosize=False,
+        width=1100,
+        height=1000,
+        hovermode='closest',
+        map=dict(
+            bearing=0,
+            center=dict(
+                lat=reef_meta['Lat'].mean(),
+                lon=reef_meta['Lon'].mean(),
+            ),
+            pitch=0,
+            zoom=6,
+            style='light'
+        ),
+    )
+    return fig
+
+
+def temp_depth_scatter(temperature_data, reef_meta):
+    """
+    Create a scatter plot of mean August temperature vs depth for different regions
+
+    :param pd.DataFrame temperature_data: Temperature data
+    :param pd.DataFrame reef_meta: Reef Check metadata
+    :return px.Figure: Scatter plot object
+    """
+    merged_data = temperature_data.merge(reef_meta, on='Site', how='left')
+    yr_data = get_year_data(merged_data)
+    temp_data = yr_data[['Temp', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
+    temp_data = temp_data[temp_data['Month'] == 8]
+    temp_data = temp_data.groupby('Site').mean(numeric_only=True).reset_index()
+    temp_data = temp_data.dropna()
+    merged_data = temp_data.merge(reef_meta[["Site", "Region"]], on='Site', how='left')
+
+    fig = px.scatter(
+        merged_data,
+        x="depth (ft)",
+        y="Temp",
+        color="Region",
+        hover_data=['Site'],
+    )
+    fig.update_traces(marker_size=10)
+    fig.update_layout(
+        autosize=False,
+        width=1000,
+        height=600,
+        title="Mean Temperature in August vs Depth Across California Regions",
     )
     return fig
