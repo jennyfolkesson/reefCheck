@@ -392,6 +392,7 @@ def temp_depth_scatter(temperature_data, reef_meta):
         y="Temp",
         color="Region",
         hover_data=['Site'],
+        trendline='ols',
     )
     fig.update_traces(marker_size=10)
     fig.update_layout(
