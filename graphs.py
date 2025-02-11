@@ -1,3 +1,4 @@
+import datetime
 import numpy as np
 import os
 import pandas as pd
@@ -370,21 +371,28 @@ def temperature_depth_graph(temperature_data, reef_meta):
     return fig
 
 
-def temp_depth_scatter(temperature_data, reef_meta):
+def temp_depth_scatter(temperature_data, reef_meta, month=8):
     """
-    Create a scatter plot of mean August temperature vs depth for different regions
+    Create a scatter plot of mean temperature for a specific month
+    vs depth for different regions.
 
     :param pd.DataFrame temperature_data: Temperature data
     :param pd.DataFrame reef_meta: Reef Check metadata
+    :param int month: Month (1-12)
     :return px.Figure: Scatter plot object
     """
+    assert 1 <= month <= 12, "Month must be in the range [1,12]"
     merged_data = temperature_data.merge(reef_meta, on='Site', how='left')
     yr_data = get_year_data(merged_data)
     temp_data = yr_data[['Temp', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
-    temp_data = temp_data[temp_data['Month'] == 8]
+    temp_data = temp_data[temp_data['Month'] == month]
     temp_data = temp_data.groupby('Site').mean(numeric_only=True).reset_index()
     temp_data = temp_data.dropna()
     merged_data = temp_data.merge(reef_meta[["Site", "Region"]], on='Site', how='left')
+
+    fig_month = datetime.date(2000, month, 1).strftime('%B')
+    fig_title = ("Mean Temperature vs Depth Across California "
+                 "Regions in {}").format(fig_month)
 
     fig = px.scatter(
         merged_data,
@@ -399,6 +407,40 @@ def temp_depth_scatter(temperature_data, reef_meta):
         autosize=False,
         width=1000,
         height=600,
-        title="Mean Temperature in August vs Depth Across California Regions",
+        title=fig_title,
+    )
+    return fig
+
+
+def temp_depth_annual_trendlines(temperature_data, reef_meta, region='Southern California'):
+    """
+    Create a scatter plot of mean temperature for a specific month
+    vs depth for different regions.
+
+    :param pd.DataFrame temperature_data: Temperature data
+    :param pd.DataFrame reef_meta: Reef Check metadata
+    :param str region: Region to analyze
+    :return px.Figure: Scatter plot object
+    """
+    merged_data = temperature_data.merge(reef_meta, on='Site', how='left')
+    yr_data = get_year_data(merged_data)
+    yr_data = yr_data[yr_data['Region'] == region]
+    temp_data = yr_data[['Temp', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
+
+    temp_data = temp_data.groupby(['Site', 'Month']).mean(numeric_only=True).reset_index()
+    temp_data = temp_data.dropna()
+    temp_data = temp_data.sort_values(by=['depth (ft)'], ascending=False)
+
+    fig = px.line(
+        temp_data,
+        x="depth (ft)",
+        y="Temp",
+        color="Month",
+    )
+    fig.update_layout(
+        autosize=False,
+        width=1000,
+        height=600,
+        title="Temperature vs depth for each month in Southern California",
     )
     return fig
