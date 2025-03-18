@@ -12,6 +12,8 @@ import graphs as graphs
 
 
 OISST_URL = "https://www.ncei.noaa.gov/data/sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr/"
+TEMP_FILE_NAME = 'merged_reefcheck_temp_data.csv'
+COORD_FILE_NAME = "reefcheck_code_coords.csv"
 
 
 def parse_args():
@@ -35,7 +37,7 @@ def parse_args():
     parser.add_argument(
         '--debug',
         dest="debug",
-        action="store_true",
+        action="store_false",
         help='Debug status',
     )
     parser.add_argument(
@@ -276,6 +278,8 @@ def read_timeseries(site_dir, deploy_site=None, resample_rate='d'):
     """
     def _match_deployment(deploy_site, year, month):
         # Loop through deployment metadata for site files
+        if deploy_site is None:
+            return None
         for row in deploy_site.itertuples():
             if row.Deployed.year == year and row.Deployed.month == month:
                 return row
@@ -284,7 +288,6 @@ def read_timeseries(site_dir, deploy_site=None, resample_rate='d'):
     temps = []
     file_paths = glob.glob(os.path.join(site_dir, '*.csv'))
     file_paths.sort()
-    print(file_paths)
     for file_path in file_paths:
         file_name = os.path.basename(file_path)
         file_split = file_name.split('_')
@@ -301,27 +304,33 @@ def read_timeseries(site_dir, deploy_site=None, resample_rate='d'):
         row_match = _match_deployment(deploy_site, year, month)
         temp_data = pd.read_csv(file_path, skiprows=1)
         temp_data = format_data(temp_data)
-        nbr_days = 14
         if row_match is not None:
+            temp_data = temp_data[(temp_data.Datetime.dt.date >
+                                   row_match.Deployed.date()) &
+                                  (temp_data.Datetime.dt.date <
+                                   row_match.Retrieved.date())]
+        else:
+            # No deployed/retrieved data in log, do change point detection
+            print("No log info for {}, {}-{}".format(site_dir, year, month))
             nbr_days = 7
-            temp_data = temp_data[(temp_data.Datetime > row_match.Deployed) &
-                                  (temp_data.Datetime <= row_match.Retrieved)]
-        if temp_data.shape[0] > 1000:
-            # Check for change point at the beginning of time series
-            temp_data = change_point_detection(
-                temp_data=temp_data,
-                nbr_days=nbr_days,
-                debug=False,
-            )
-            temp_data = change_point_detection(
-                temp_data=temp_data,
-                at_start=False,
-                nbr_days=nbr_days,
-                debug=False,
-            )
-            # Resample to day intervals, get median temperature
-            temp_data = temp_data.resample(resample_rate, on='Datetime').mean()
-            temps.append(temp_data)
+            if temp_data.shape[0] > 1000:
+                # Check for change point at the beginning of time series
+                temp_data = change_point_detection(
+                    temp_data=temp_data,
+                    nbr_days=nbr_days,
+                    debug=False,
+                )
+                temp_data = change_point_detection(
+                    temp_data=temp_data,
+                    at_start=False,
+                    nbr_days=nbr_days,
+                    debug=False,
+                )
+        # Resample to day intervals, get aggregate temperature data
+        temp_data = temp_data.set_index('Datetime').rename_axis(None)
+        temps_resample = temp_data.resample(resample_rate).agg(
+            ['mean', 'median', 'max', 'min'])
+        temps.append(temps_resample)
 
     if len(temps) == 0:
         return None
@@ -330,6 +339,7 @@ def read_timeseries(site_dir, deploy_site=None, resample_rate='d'):
         temps,
         axis=0,
     )
+    temp_data.columns = ['Temp Mean', 'Temp Median', 'Temp Max', 'Temp Min']
     # Remove duplicate indices
     temp_data = temp_data[~temp_data.index.duplicated(keep='first')]
     # Fill missing dates with NaNs
@@ -339,12 +349,14 @@ def read_timeseries(site_dir, deploy_site=None, resample_rate='d'):
     return temp_data
 
 
-def convert_to_datetime(dataframe, col_name, dt_format):
+def convert_to_datetime(dataframe, col_name, dt_format, to_date=False):
     dataframe[col_name] = pd.to_datetime(
         dataframe[col_name],
         format=dt_format,
         errors='coerce',
     )
+    if to_date:
+        dataframe[col_name] = dataframe[col_name].dt.date
 
 
 def site_temperature(data_dir,
@@ -366,7 +378,7 @@ def site_temperature(data_dir,
     :param bool debug: If true, save a plot for site
     :return pd.DataFrame temp_data: Temperature data for site
     """
-    print('Site name', site_name, '-----------------')
+    print('Site name: ', site_name)
     deploy_site = deploy_meta[deploy_meta['Site'] == site_name]
     # Get metadata for specific site
     site_meta = reef_meta[reef_meta['Site'] == site_name]
@@ -478,8 +490,11 @@ def collect_temperature_data(data_dir,
         axis=0,
     )
     temperature_data['Date'] = temperature_data.index
+    list(temperature_data)
+    temp_cols = ['Site', 'Date', 'Temp Mean', 'Temp Median', 'Temp Max', 'Temp Min', 'SST']
+    temperature_data = temperature_data[temp_cols]
     temperature_data.to_csv(
-        os.path.join(data_dir, "merged_reefcheck_oisst_data.csv"),
+        os.path.join(data_dir, TEMP_FILE_NAME),
         index=False,
     )
     reef_meta.to_csv(
@@ -541,7 +556,7 @@ def cleanup_sheets(data_dir):
         site_meta.loc[idx, 'idx_lon'] = idx_lon
     # Save csv file
     site_meta.to_csv(
-        os.path.join(data_dir, "reefcheck_code_coords.csv"),
+        os.path.join(data_dir, COORD_FILE_NAME),
         index=False,
     )
 
@@ -556,7 +571,7 @@ def read_data_and_coords(data_dir):
     :return pd.DataFrame col_config: Column info (name, sources, type,
         material, activity)
     """
-    existing_file = glob.glob(os.path.join(data_dir, 'merged_reefcheck_oisst_data.csv'))
+    existing_file = glob.glob(os.path.join(data_dir, TEMP_FILE_NAME))
     if len(existing_file) == 0:
         collect_temperature_data(data_dir)
     # Make sure Date column is datetime
@@ -564,7 +579,7 @@ def read_data_and_coords(data_dir):
     temp_data['Date'] = pd.to_datetime(temp_data['Date'], errors='coerce')
     # temp_data = temp_data.set_index('Date')
     # Read coordinates for all sites
-    reef_path = os.path.join(data_dir, "reefcheck_code_coords.csv")
+    reef_path = os.path.join(data_dir, COORD_FILE_NAME)
     reef_meta = pd.read_csv(reef_path)
     reef_meta = reef_meta.dropna(subset=['sst_lat'])
 

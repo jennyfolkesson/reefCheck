@@ -65,7 +65,7 @@ def line_consecutive_years(temp_data, site_name):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=temp_data['Date'],
-        y=temp_data["Temp"],
+        y=temp_data["Temp Mean"],
         name='Reef Check',
         mode='lines',
     ))
@@ -97,7 +97,7 @@ def line_overlaid_years(temperature_data, site_name):
     :return px.fig: Figure
     """
     yr_data = get_year_data(temperature_data)
-    fig = px.line(yr_data, x="Date", y="Temp", color='Year', color_discrete_map=COLOR_MAP)
+    fig = px.line(yr_data, x="Date", y="Temp Mean", color='Year', color_discrete_map=COLOR_MAP)
     fig.update_layout(
         autosize=False,
         width=1000,
@@ -186,8 +186,7 @@ def coordinate_map(reef_meta):
     return fig
 
 
-def _add_std_trace(fig, temp_stats, std_color, stat_name, tr_name):
-    std_name = "{}_std".format(stat_name)
+def _add_std_trace(fig, temp_stats, std_color, stat_name, tr_name, std_name):
     fig.add_trace(go.Scatter(
         name='+1 std {}'.format(tr_name),
         x=temp_stats.index,
@@ -226,13 +225,13 @@ def mean_temperature_lines(temp_data, freq='1D', title_txt=None):
     temp_std = temp_mean.groupby(
         pd.Grouper(key='Date', axis=0, freq=freq, sort=True),
     ).std()
-    temp_stats['Temp_std'] = temp_std['Temp']
+    temp_stats['Temp_std'] = temp_std['Temp Mean']
     temp_stats['SST_std'] = temp_std['SST']
     temp_stats = temp_stats.dropna(subset=['Temp_std'])
 
     fig = go.Figure()
-    _add_std_trace(fig, temp_stats, 'rgba(255, 0, 0, .2)', 'SST', 'SST')
-    _add_std_trace(fig, temp_stats, 'rgba(0, 0, 255, .2)', 'Temp', 'Reef Check')
+    _add_std_trace(fig, temp_stats, 'rgba(255, 0, 0, .2)', 'SST', 'SST', 'SST_std')
+    _add_std_trace(fig, temp_stats, 'rgba(0, 0, 255, .2)', 'Temp Mean', 'Reef Check', 'Temp_std')
     fig.add_trace(go.Scatter(
         name='Sea Surface Temperature',
         x=temp_stats.index,
@@ -243,7 +242,7 @@ def mean_temperature_lines(temp_data, freq='1D', title_txt=None):
     fig.add_trace(go.Scatter(
         name='Reef Check Temperature',
         x=temp_stats.index,
-        y=temp_stats['Temp'],
+        y=temp_stats['Temp Mean'],
         mode='lines',
         line=dict(color='rgb(0, 0, 255)'),
     ))
@@ -272,7 +271,7 @@ def temperature_diff_graph(temperature_data, freq='1D', title_txt=None):
     :return go.Figure fig: Graph object
     """
     yr_data = get_year_data(temperature_data)
-    yr_data['Diff'] = yr_data['SST'] - yr_data['Temp']
+    yr_data['Diff'] = yr_data['SST'] - yr_data['Temp Mean']
     yr_data = yr_data.drop('Site', axis=1)
     if 'Region' in list(yr_data):
         yr_data = yr_data.drop(['Region'], axis=1)
@@ -288,7 +287,7 @@ def temperature_diff_graph(temperature_data, freq='1D', title_txt=None):
     temp_stats = temp_stats.dropna(subset=['Diff_std'])
 
     fig = go.Figure()
-    _add_std_trace(fig, temp_stats, 'rgba(0, 0, 255, .2)', 'Diff', 'Diff')
+    _add_std_trace(fig, temp_stats, 'rgba(0, 0, 255, .2)', 'Diff', 'Diff', 'Diff_std')
     fig.add_trace(go.Scatter(
         name='SST - Reef Check temperature difference',
         x=temp_stats.index,
@@ -325,12 +324,12 @@ def temperature_depth_graph(temperature_data, reef_meta):
     """
     merged_data = temperature_data.merge(reef_meta, on='Site', how='left')
     yr_data = get_year_data(merged_data)
-    temp_data = yr_data[['Temp', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
+    temp_data = yr_data[['Temp Mean', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
     temp_data = temp_data[temp_data['Month'] == 8]
     temp_data = temp_data.groupby('Site').mean(numeric_only=True).reset_index()
     temp_data = temp_data.dropna()
     temp_data['depth txt'] = temp_data['depth (ft)'].apply(lambda s: "{:.1f}".format(s))
-    temp_data['temp txt'] = temp_data['Temp'].apply(lambda s: "{:.1f}".format(s))
+    temp_data['temp txt'] = temp_data['Temp Mean'].apply(lambda s: "{:.1f}".format(s))
 
     hover_text = (temp_data['Site'] +
                   "<br> depth: " + temp_data['depth txt'] +
@@ -343,7 +342,7 @@ def temperature_depth_graph(temperature_data, reef_meta):
         mode='markers',
         marker=go.scattermap.Marker(
             size=temp_data['depth (ft)'],
-            color=temp_data['Temp'],
+            color=temp_data['Temp Mean'],
             colorscale='thermal',
             showscale=True,
         ),
@@ -384,7 +383,7 @@ def temp_depth_scatter(temperature_data, reef_meta, month=8):
     assert 1 <= month <= 12, "Month must be in the range [1,12]"
     merged_data = temperature_data.merge(reef_meta, on='Site', how='left')
     yr_data = get_year_data(merged_data)
-    temp_data = yr_data[['Temp', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
+    temp_data = yr_data[['Temp Mean', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
     temp_data = temp_data[temp_data['Month'] == month]
     temp_data = temp_data.groupby('Site').mean(numeric_only=True).reset_index()
     temp_data = temp_data.dropna()
@@ -397,7 +396,7 @@ def temp_depth_scatter(temperature_data, reef_meta, month=8):
     fig = px.scatter(
         merged_data,
         x="depth (ft)",
-        y="Temp",
+        y="Temp Mean",
         color="Region",
         hover_data=['Site'],
         trendline='ols',
@@ -425,7 +424,7 @@ def temp_depth_annual_trendlines(temperature_data, reef_meta, region='Southern C
     merged_data = temperature_data.merge(reef_meta, on='Site', how='left')
     yr_data = get_year_data(merged_data)
     yr_data = yr_data[yr_data['Region'] == region]
-    temp_data = yr_data[['Temp', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
+    temp_data = yr_data[['Temp Mean', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
 
     temp_data = temp_data.groupby(['Site', 'Month']).mean(numeric_only=True).reset_index()
     temp_data = temp_data.dropna()
@@ -434,7 +433,7 @@ def temp_depth_annual_trendlines(temperature_data, reef_meta, region='Southern C
     fig = px.line(
         temp_data,
         x="depth (ft)",
-        y="Temp",
+        y="Temp Mean",
         color="Month",
     )
     fig.update_layout(
@@ -443,4 +442,19 @@ def temp_depth_annual_trendlines(temperature_data, reef_meta, region='Southern C
         height=600,
         title="Temperature vs depth for each month in Southern California",
     )
+    return fig
+
+
+def temp_depth_animation(temperature_data, reef_meta):
+    # TODO: Some sites don't have all months which makes the animation look weird
+    # Only include sites that span all months?
+    merged_data = temperature_data.merge(reef_meta, on='Site', how='left')
+    yr_data = get_year_data(merged_data)
+    temp_data = yr_data[['Temp Mean', 'Site', 'Month', 'depth (ft)', 'Lon', 'Lat']]
+    temp_data = temp_data.groupby(['Site', 'Month']).mean(numeric_only=True).reset_index()
+    temp_data = temp_data.dropna()
+    merged_data = temp_data.merge(reef_meta[["Site", "Region"]], on='Site', how='left')
+    # merged_data
+    fig = px.scatter(merged_data, x='depth (ft)', y='Temp Mean', animation_frame='Month',
+               color='Region', range_y=[9, 22.5], hover_name='Site')
     return fig
