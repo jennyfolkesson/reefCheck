@@ -1,10 +1,12 @@
 import datetime
+import itertools
 import numpy as np
 import os
 import pandas as pd
 import plotly
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 # plotly.colors.sequential YlGnBu
@@ -457,4 +459,180 @@ def temp_depth_animation(temperature_data, reef_meta):
     # merged_data
     fig = px.scatter(merged_data, x='depth (ft)', y='Temp Mean', animation_frame='Month',
                color='Region', range_y=[9, 22.5], hover_name='Site')
+    return fig
+
+
+def ecosystem_data_map(data_dir, file_name):
+    # file_name = "Invert_California_Survey_means_2024.csv"
+    file_path = os.path.join(data_dir, file_name)
+    eco_data = pd.read_csv(file_path)
+
+    lat_mid = (eco_data['Latitude'].min() +
+               (eco_data['Latitude'].max() - eco_data['Latitude'].min()) / 2)
+    lon_mid = (eco_data['Longitude'].min() +
+               (eco_data['Longitude'].max() - eco_data['Longitude'].min()) / 2)
+
+    df = eco_data[(eco_data['Classcode'] == 'Purple Urchin') &
+                  (eco_data['MeanDens60m'] > 0)].copy()
+    # (eco_data['Year'] == 2006) &
+
+    df['Year txt'] = df['Year'].apply(lambda s: "{:d}".format(s))
+    df['Dens txt'] = df['MeanDens60m'].apply(lambda s: "{:.1f}".format(s))
+    hover_text = (df['Site'] +
+                  "<br> Year: " + df['Year txt'] +
+                  "<br> Density: " + df['Dens txt'])
+
+    fig = go.Figure()
+    fig.add_trace(go.Scattermap(
+        lat=df['Latitude'],
+        lon=df['Longitude'],
+        # customdata=['Site', 'Year'],
+        mode='markers',
+        marker=go.scattermap.Marker(
+            size=df['MeanDens60m']/50,
+            color=df['Year'],
+            colorscale='thermal',
+            showscale=True,
+        ),
+        text=hover_text,
+        hoverinfo='text',
+    ))
+
+    fig.update_layout(
+        # title='Purple Urchin Ecosystem Map',
+        autosize=False,
+        width=1000,
+        height=1200,
+        hovermode='closest',
+        map=dict(
+            bearing=0,
+            center=dict(
+                lat=lat_mid,
+                lon=lon_mid,
+            ),
+            pitch=0,
+            zoom=6,
+            style='light'
+        ),
+    )
+    return fig
+
+
+def ecosystem_subplots(data_dir, file_name):
+    # file_name = "Invert_California_Survey_means_2024.csv"
+    file_path = os.path.join(data_dir, file_name)
+    eco_data = pd.read_csv(file_path)
+
+    lat_mid = (eco_data['Latitude'].min() +
+               (eco_data['Latitude'].max() - eco_data['Latitude'].min()) / 2)
+    lon_mid = (eco_data['Longitude'].min() +
+               (eco_data['Longitude'].max() - eco_data['Longitude'].min()) / 2)
+
+    df_class = eco_data[(eco_data['Classcode'] == 'Purple Urchin') &
+                        (eco_data['MeanDens60m'] > 0)].copy()
+
+    yrs = eco_data.Year.unique()
+    yrs.sort()
+    year_txt = yrs[::3]
+    year_txt = [str(s) for s in year_txt]
+    fig = make_subplots(
+        rows=2,
+        cols=4,
+        subplot_titles=year_txt,
+        start_cell="top-left",
+        specs=[
+            [{"type": "scattermap"}, {"type": "scattermap"}, {"type": "scattermap"}, {"type": "scattermap"}],
+            [{"type": "scattermap"}, {"type": "scattermap"}, {"type": "scattermap"}, {"type": "scattermap"}]
+        ]
+    )
+
+    grid_coords = list(itertools.product(list(range(1, 3)), list(range(1, 5))))
+    # Visualize every 3 years
+    for i, yr in enumerate(yrs[::3]):
+        map_key = 'map' + str(i + 1) if i != 0 else 'map'
+        df = df_class[df_class['Year'] == yr].copy()
+        row_nbr, col_nbr = grid_coords[i]
+
+        fig.add_trace(go.Scattermap(
+                lat=df['Latitude'],
+                lon=df['Longitude'],
+                showlegend=False,
+                name=str(yr),
+                mode='markers',
+                marker=go.scattermap.Marker(
+                    size=df['MeanDens60m']/100,
+                    color='purple',  # df['Year'],
+                    # colorscale='thermal',
+                    showscale=False,
+                ),
+            ),
+            row=row_nbr, col=col_nbr,
+        )
+
+        fig['layout'][map_key] = dict(
+            domain=dict(
+                x=[float(col_nbr - 1)/float(4), float(col_nbr)/float(4)],
+                y=[1 - float(row_nbr)/float(2), 1 - float(row_nbr - 1)/float(2)]),
+            bearing=0,
+            center=dict(
+                lat=lat_mid,
+                lon=lon_mid,
+            ),
+            pitch=0,
+            zoom=4.5,
+            style='light',
+        )
+
+    fig.update_layout(
+        # title='Purple Urchin Ecosystem Map',
+        autosize=False,
+        width=1200,
+        height=1200,
+    )
+    return fig
+
+
+def ecosystem_animation(data_dir, file_name):
+    file_path = os.path.join(data_dir, file_name)
+    eco_data = pd.read_csv(file_path)
+
+    lat_mid = (eco_data['Latitude'].min() +
+               (eco_data['Latitude'].max() - eco_data['Latitude'].min()) / 2)
+    lon_mid = (eco_data['Longitude'].min() +
+               (eco_data['Longitude'].max() - eco_data['Longitude'].min()) / 2)
+
+    df_class = eco_data[(eco_data['Classcode'] == 'Purple Urchin') &
+                        (eco_data['MeanDens60m'] > 0)].copy()
+
+    df_class = df_class.sort_values('Year')
+
+    fig = px.scatter_mapbox(
+        data_frame=df_class,
+        lat="Latitude",
+        lon="Longitude",
+        animation_frame='Year',
+        color_discrete_sequence=['purple'],
+        size='MeanDens60m',
+        # size_max=70,
+        zoom=2,
+        hover_name='Site',
+        hover_data=['Site', 'MeanDens60m'],
+    )
+
+    map_bounds = {
+        "west": df_class['Longitude'].min() - .5,
+        "east": df_class['Longitude'].max() + .5,
+        "south": df_class['Latitude'].min() - .5,
+        "north": df_class['Latitude'].max() + .5,
+    }
+
+    fig.update_layout(
+        # title='Purple Urchin Ecosystem Map',
+        autosize=True,
+        width=600,
+        height=1000,
+        hovermode='closest',
+        mapbox_style="carto-positron",
+        mapbox_bounds=map_bounds,
+    )
     return fig
