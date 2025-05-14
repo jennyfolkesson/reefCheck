@@ -462,7 +462,7 @@ def temp_depth_animation(temperature_data, reef_meta):
     return fig
 
 
-def ecosystem_data_map(data_dir, file_name):
+def ecosystem_data_map(data_dir, file_name, class_code):
     # file_name = "Invert_California_Survey_means_2024.csv"
     file_path = os.path.join(data_dir, file_name)
     eco_data = pd.read_csv(file_path)
@@ -472,7 +472,7 @@ def ecosystem_data_map(data_dir, file_name):
     lon_mid = (eco_data['Longitude'].min() +
                (eco_data['Longitude'].max() - eco_data['Longitude'].min()) / 2)
 
-    df = eco_data[(eco_data['Classcode'] == 'Purple Urchin') &
+    df = eco_data[(eco_data['Classcode'] == class_code) &
                   (eco_data['MeanDens60m'] > 0)].copy()
     # (eco_data['Year'] == 2006) &
 
@@ -518,7 +518,7 @@ def ecosystem_data_map(data_dir, file_name):
     return fig
 
 
-def ecosystem_subplots(data_dir, file_name):
+def ecosystem_subplots(data_dir, file_name, class_code, scale_down=50):
     # file_name = "Invert_California_Survey_means_2024.csv"
     file_path = os.path.join(data_dir, file_name)
     eco_data = pd.read_csv(file_path)
@@ -528,9 +528,11 @@ def ecosystem_subplots(data_dir, file_name):
     lon_mid = (eco_data['Longitude'].min() +
                (eco_data['Longitude'].max() - eco_data['Longitude'].min()) / 2)
 
-    df_class = eco_data[(eco_data['Classcode'] == 'Purple Urchin') &
+    df_class = eco_data[(eco_data['Classcode'] == class_code) &
                         (eco_data['MeanDens60m'] > 0)].copy()
-
+    # Cap density at 1000 for visualization, change color instead for actual density
+    df_class['DensCap'] = df_class['MeanDens60m'].clip(upper=1000)
+    # Specify subplots
     yrs = eco_data.Year.unique()
     yrs.sort()
     year_txt = yrs[::3]
@@ -543,7 +545,7 @@ def ecosystem_subplots(data_dir, file_name):
         specs=[
             [{"type": "scattermap"}, {"type": "scattermap"}, {"type": "scattermap"}, {"type": "scattermap"}],
             [{"type": "scattermap"}, {"type": "scattermap"}, {"type": "scattermap"}, {"type": "scattermap"}]
-        ]
+        ],
     )
 
     grid_coords = list(itertools.product(list(range(1, 3)), list(range(1, 5))))
@@ -560,9 +562,9 @@ def ecosystem_subplots(data_dir, file_name):
                 name=str(yr),
                 mode='markers',
                 marker=go.scattermap.Marker(
-                    size=df['MeanDens60m']/100,
-                    color='purple',  # df['Year'],
-                    # colorscale='thermal',
+                    size=df['DensCap']/scale_down,
+                    color=df['MeanDens60m'],
+                    colorscale='thermal',
                     showscale=False,
                 ),
             ),
@@ -584,15 +586,15 @@ def ecosystem_subplots(data_dir, file_name):
         )
 
     fig.update_layout(
-        # title='Purple Urchin Ecosystem Map',
         autosize=False,
         width=1200,
         height=1200,
     )
+    fig.update_annotations(yshift=20)
     return fig
 
 
-def ecosystem_animation(data_dir, file_name):
+def ecosystem_animation(data_dir, file_name, class_code):
     file_path = os.path.join(data_dir, file_name)
     eco_data = pd.read_csv(file_path)
 
@@ -601,8 +603,9 @@ def ecosystem_animation(data_dir, file_name):
     lon_mid = (eco_data['Longitude'].min() +
                (eco_data['Longitude'].max() - eco_data['Longitude'].min()) / 2)
 
-    df_class = eco_data[(eco_data['Classcode'] == 'Purple Urchin') &
+    df_class = eco_data[(eco_data['Classcode'] == class_code) &
                         (eco_data['MeanDens60m'] > 0)].copy()
+    df_class['DensCap'] = df_class['MeanDens60m'].clip(upper=1000)
 
     df_class = df_class.sort_values('Year')
 
@@ -611,8 +614,9 @@ def ecosystem_animation(data_dir, file_name):
         lat="Latitude",
         lon="Longitude",
         animation_frame='Year',
-        color_discrete_sequence=['purple'],
-        size='MeanDens60m',
+        color_discrete_sequence='thermal',
+        size='DensCap',
+        color='MeanDens60m',
         # size_max=70,
         zoom=2,
         hover_name='Site',
@@ -629,7 +633,7 @@ def ecosystem_animation(data_dir, file_name):
     fig.update_layout(
         # title='Purple Urchin Ecosystem Map',
         autosize=True,
-        width=600,
+        width=800,
         height=1000,
         hovermode='closest',
         mapbox_style="carto-positron",
