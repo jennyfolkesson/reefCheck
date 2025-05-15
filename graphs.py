@@ -165,7 +165,7 @@ def coordinate_map(reef_meta):
             opacity=0.5,
         ),
         text=reef_meta['Site'],
-        hoverinfo='text'
+        hoverinfo='text',
     ))
     fig.update_layout(
         title='Reef Check and OISST Coordinates',
@@ -182,7 +182,7 @@ def coordinate_map(reef_meta):
             ),
             pitch=0,
             zoom=6,
-            style='light'
+            style='light',
         ),
     )
     return fig
@@ -550,47 +550,59 @@ def ecosystem_subplots(data_dir, file_name, class_code, scale_down=50):
 
     grid_coords = list(itertools.product(list(range(1, 3)), list(range(1, 5))))
     # Visualize every 3 years
+    show_scale = False
     for i, yr in enumerate(yrs[::3]):
         map_key = 'map' + str(i + 1) if i != 0 else 'map'
         df = df_class[df_class['Year'] == yr].copy()
         row_nbr, col_nbr = grid_coords[i]
 
+        df['Dens txt'] = df['MeanDens60m'].apply(lambda s: "{:.1f}".format(s))
+        hover_text = (df['Site'] +
+                      "<br> Density: " + df['Dens txt'])
+
+        if i == 6:
+            show_scale = True
         fig.add_trace(go.Scattermap(
                 lat=df['Latitude'],
                 lon=df['Longitude'],
                 showlegend=False,
+                text=hover_text,
+                hoverinfo='text',
                 name=str(yr),
                 mode='markers',
+                legendgroup='class',
                 marker=go.scattermap.Marker(
                     size=df['DensCap']/scale_down,
                     color=df['MeanDens60m'],
                     colorscale='thermal',
-                    showscale=False,
+                    showscale=show_scale,
                 ),
             ),
             row=row_nbr, col=col_nbr,
         )
-
+        # Positioning of subplots
+        y0 = 1 - float(row_nbr)/float(2)
         fig['layout'][map_key] = dict(
             domain=dict(
                 x=[float(col_nbr - 1)/float(4), float(col_nbr)/float(4)],
-                y=[1 - float(row_nbr)/float(2), 1 - float(row_nbr - 1)/float(2)]),
+                y=[y0, 1 - float(row_nbr - 1)/float(2)]),
             bearing=0,
             center=dict(
                 lat=lat_mid,
                 lon=lon_mid,
             ),
             pitch=0,
-            zoom=4.5,
+            zoom=4.25,
             style='light',
         )
+        # Align subplot titles
+        fig['layout']['annotations'][i]['y'] = y0 + .47
 
     fig.update_layout(
         autosize=False,
-        width=1200,
+        width=1100,
         height=1200,
     )
-    fig.update_annotations(yshift=20)
     return fig
 
 
